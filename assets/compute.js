@@ -145,12 +145,15 @@
       }
     }
 
-    /* 推广消耗：区间内花了钱但没出单的链接也要进来，否则这笔亏损会凭空消失 */
+    /* 推广消耗：区间内花了钱但没出单的链接也要进来，否则这笔亏损会凭空消失
+       单店视图下只进该店的商品，避免别店的链接和花费漏进来 */
     var adIndex = S.adIndex || {};
     var adAll = S.adAll || {};
+    var pidShop = S.pidShop || {};
     var adPidList = Object.keys(S.adPids || {});
     for (var ai = 0; ai < adPidList.length; ai++) {
       var apid = adPidList[ai];
+      if (shop !== '__ALL__' && pidShop[apid] !== shop) continue;
       var aa = adSpendFor(apid, range, adIndex, adAll);
       if (aa.spend <= 0) continue;
       var aL = linkMap[apid];
