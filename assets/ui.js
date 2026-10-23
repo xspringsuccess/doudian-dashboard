@@ -517,13 +517,38 @@
       h = '<div class="empty">还没有导入任何文件</div>';
     } else {
       var tagMap = { orders: '订单', products: '商品', ad: '推广', params: '参数' };
+      var unitMap = { orders: '行订单', products: '个SKU', ad: '行推广', params: '条参数' };
       for (var i = 0; i < S.files.length; i++) {
         var f = S.files[i];
-        h += '<div class="imp-item"><span class="imp-tag">' + (tagMap[f.type] || f.type) + '</span>' +
-          '<span class="imp-name">' + U.esc(f.name) + '</span></div>';
+        h += '<div class="imp-item">' +
+          '<span class="imp-tag">' + (tagMap[f.type] || f.type) + '</span>' +
+          '<span class="imp-name">' + U.esc(f.name) +
+          (f.shop ? '<b class="imp-shop">「' + U.esc(f.shop) + '」</b>' : '') +
+          (f.n ? '<i class="imp-cnt">' + U.money0(f.n) + ' ' + (unitMap[f.type] || '') + '</i>' : '') +
+          '</span>' +
+          '<button class="btn btn-sm btn-del" data-delfile="' + U.esc(f.id) + '" data-dfname="' + U.esc(f.name) + '">删除</button>' +
+          '</div>';
       }
     }
     $('impList').innerHTML = h;
+
+    var dels = document.querySelectorAll('[data-delfile]');
+    for (var d = 0; d < dels.length; d++) {
+      dels[d].onclick = function () {
+        var id = this.getAttribute('data-delfile');
+        var nm = this.getAttribute('data-dfname');
+        if (!confirm('确定删除「' + nm + '」？\n它带来的订单 / 商品 / 推广数据会一并移除，其他文件不受影响。')) return;
+        var r = IMP.removeFile(id);
+        STORE.saveCore();
+        renderAll();
+        renderImpList();
+        var extra = [];
+        if (r && r.orders) extra.push(r.orders + ' 行订单');
+        if (r && r.skus) extra.push(r.skus + ' 个 SKU');
+        if (r && r.ad) extra.push(r.ad + ' 条推广');
+        U.toast('已删除「' + nm + '」' + (extra.length ? '，移除 ' + extra.join('、') : ''));
+      };
+    }
   }
 
   function handleFiles(files) {
