@@ -616,10 +616,14 @@
     S.settings.talentUnionOnly = $('setUnionOnly').checked;
     S.settings.includePendingRefund = $('setPendingRefund').checked;
     S.settings.adFallback = $('setAdFallback').checked;
+    /* 关键：把新的默认值刷进 SKU 参数表，否则看板数字不会变 */
+    var r = STORE.applyDefaults();
     STORE.saveParams();
     $('settingsModal').classList.add('hidden');
     renderAll();
-    U.toast('设置已保存并重算');
+    var msg = '设置已保存并重算：' + U.money0(r.updated) + ' 个 SKU 已按新默认值更新';
+    if (r.kept) msg += '，' + U.money0(r.kept) + ' 个单独改过的保持不变';
+    U.toast(msg);
   }
 
   /* ================= 快捷时间 ================= */
