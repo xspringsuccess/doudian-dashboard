@@ -155,7 +155,7 @@
     var links = res.links.slice().sort(function (a, b) { return b.validGmv - a.validGmv; });
     var h = '<div class="panel"><div class="panel-head">' +
       '<span class="panel-title">全部链接利润</span>' +
-      '<span class="panel-sub">点击左侧箭头展开该链接下的各 SKU 明细</span></div>' +
+      '<span class="panel-sub">SKU 行的投流费用 = 链接投流 × 该 SKU 有效GMV 占链接的比例（推广报表只到商品ID，无 SKU 级数据）</span></div>' +
       '<div class="tbl-wrap">' + linkTableHtml(links, true) + '</div></div>';
     $('tab-links').innerHTML = h;
     bindExpand();
