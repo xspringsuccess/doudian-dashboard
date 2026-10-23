@@ -247,6 +247,11 @@
       return s;
     });
 
+    /* 单店视图下只列出归属该店铺的 SKU */
+    if (S.shop !== '__ALL__') {
+      rows = rows.filter(function (s) { return S.pidShop[s.pid] === S.shop; });
+    }
+
     var kw = skuFilter.trim().toLowerCase();
     if (kw) {
       rows = rows.filter(function (s) {
@@ -402,6 +407,9 @@
     var kw = skuFilter.trim().toLowerCase();
 
     var list = S.skus;
+    if (S.shop !== '__ALL__') {
+      list = list.filter(function (s) { return S.pidShop[s.pid] === S.shop; });
+    }
     if (!all) {
       list = list.filter(function (s) {
         var key = STORE.skuKeyOf(s);
@@ -426,9 +434,12 @@
   function exportTpl() {
     U.loading(true, '生成模板中…');
     setTimeout(function () {
+      /* 单店视图下只导出该店铺的 SKU，避免两家店的成本参数混在一个表里 */
+      var src = S.skus;
+      if (S.shop !== '__ALL__') src = src.filter(function (s) { return S.pidShop[s.pid] === S.shop; });
       var aoa = [['商品ID', '商品名称', '规格', 'SKU编码', '售价', '商品成本', '运费', '运费险', '平台扣点(%)', '达人佣金(%)']];
-      for (var i = 0; i < S.skus.length; i++) {
-        var s = S.skus[i];
+      for (var i = 0; i < src.length; i++) {
+        var s = src[i];
         var key = STORE.skuKeyOf(s);
         var p = STORE.getParam(s.pid, key);
         aoa.push([s.pid, s.pname, s.spec, s.skuCode, s.price,
@@ -521,16 +532,18 @@
     IMP.sniff(files).then(function (items) {
       U.loading(false);
       var orderFiles = items.filter(function (it) { return it.type === 'orders'; });
-      if (!orderFiles.length) {
-        finishIngest(items, {});
-        return;
-      }
+      var defaultShop = orderFiles.length
+        ? IMP.baseName(orderFiles[0].file.name)
+        : IMP.baseName(items[0].file.name);
+      if (!items.length) return;
       pending = items;
-      var h = '';
-      for (var i = 0; i < orderFiles.length; i++) {
-        var nm = orderFiles[i].file.name;
-        h += '<div class="sa-row"><span>' + U.esc(nm) + '</span>' +
-          '<input class="input" data-shopfor="' + U.esc(nm) + '" value="' + U.esc(IMP.baseName(nm)) + '"></div>';
+      var typeTag = { orders: '订单', products: '商品', ad: '推广', params: '参数' };
+      var h = '<div class="sa-note">多个店铺请分开上传并各自命名。同一店铺的订单、商品表、推广表填<b>同一个店铺名</b>即可。</div>';
+      for (var i = 0; i < items.length; i++) {
+        var nm = items[i].file.name;
+        h += '<div class="sa-row"><span class="imp-tag">' + (typeTag[items[i].type] || '?') + '</span>' +
+          '<span>' + U.esc(nm) + '</span>' +
+          '<input class="input" data-shopfor="' + U.esc(nm) + '" value="' + U.esc(defaultShop) + '"></div>';
       }
       $('saList').innerHTML = h;
       $('shopAssign').classList.remove('hidden');
