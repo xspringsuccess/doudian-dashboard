@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>抖店利润看板</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+
+<div id="boot" class="boot">
+  <div class="boot-card">
+    <div class="boot-logo">DP</div>
+    <h1>抖店利润看板</h1>
+    <p>数据 100% 在本机浏览器内解析，不上传任何服务器</p>
+  </div>
+</div>
+
+<div id="app" class="app hidden">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">DP</span>
+      <span class="brand-name">抖店利润看板</span>
+    </div>
+
+    <div class="topbar-mid">
+      <div class="seg" id="tabSeg">
+        <button class="seg-btn active" data-tab="overview">净利润总览</button>
+        <button class="seg-btn" data-tab="links">链接利润</button>
+        <button class="seg-btn" data-tab="skus">SKU 成本</button>
+      </div>
+    </div>
+
+    <div class="topbar-right">
+      <button class="btn" id="btnImport">数据导入</button>
+      <button class="btn" id="btnSettings">设置</button>
+    </div>
+  </header>
+
+  <div class="filterbar">
+    <div class="fb-group">
+      <label class="fb-label">店铺</label>
+      <select id="shopSel" class="input"></select>
+    </div>
+
+    <div class="fb-group">
+      <label class="fb-label">开始</label>
+      <input type="date" id="dateStart" class="input">
+    </div>
+    <div class="fb-group">
+      <label class="fb-label">结束</label>
+      <input type="date" id="dateEnd" class="input">
+    </div>
+
+    <div class="fb-group fb-quick">
+      <button class="chip" data-quick="yesterday">昨日</button>
+      <button class="chip" data-quick="3d">近三天</button>
+      <button class="chip" data-quick="7d">近七天</button>
+      <button class="chip" data-quick="month">本月</button>
+      <button class="chip" data-quick="lastmonth">上月</button>
+      <button class="chip" data-quick="alldata">全部数据</button>
+    </div>
+
+    <div class="fb-warn" id="rangeWarn"></div>
+  </div>
+
+  <main class="content">
+
+    <section id="tab-overview" class="tabpane"></section>
+    <section id="tab-links" class="tabpane hidden"></section>
+    <section id="tab-skus" class="tabpane hidden"></section>
+
+  </main>
+</div>
+
+<div id="importModal" class="modal hidden">
+  <div class="modal-box modal-lg">
+    <div class="modal-head">
+      <h2>数据导入</h2>
+      <button class="icon-btn" data-close="importModal">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="dropzone" id="dz">
+        <div class="dz-icon">↑</div>
+        <div class="dz-title">点击选择文件，或把文件拖到这里</div>
+        <div class="dz-sub">支持抖店订单 CSV/XLSX、商品表 XLSX、推广数据 XLSX、SKU 参数表 XLSX。可一次选多个。</div>
+        <input type="file" id="fileInput" multiple accept=".csv,.xlsx,.xls" hidden>
+      </div>
+
+      <div class="shop-assign hidden" id="shopAssign">
+        <div class="sa-title">检测到订单文件，请指定所属店铺（用于单店/汇总切换）</div>
+        <div id="saList"></div>
+        <button class="btn btn-primary btn-sm" id="saConfirm">确认并解析</button>
+      </div>
+
+      <div class="imported">
+        <div class="imp-head">
+          <span>已载入数据</span>
+          <button class="btn btn-sm btn-danger" id="btnClearAll">清空全部</button>
+        </div>
+        <div id="impList" class="imp-list"></div>
+      </div>
+
+      <div class="hint-box">
+        <b>字段要求</b>
+        <ul>
+          <li><b>抖店订单</b>：需含 订单提交时间、商品ID、商家编码、商品数量、商品单价、订单应付金额、订单状态、售后状态、发货时间、流量来源、商品规格</li>
+          <li><b>商品表</b>：需含 商品ID、商品名称、规格ID（SKUID）、商家SKU编码、商品规格、商品价格</li>
+          <li><b>推广数据</b>：需含 商品ID、日期、整体消耗（全域推广与乘方推广格式均支持）</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="settingsModal" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2>计算设置</h2>
+      <button class="icon-btn" data-close="settingsModal">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="set-group">
+        <div class="set-title">税务</div>
+        <div class="set-row">
+          <label>全局税率（%）</label>
+          <input type="number" step="0.01" id="setTax" class="input input-sm">
+        </div>
+        <div class="set-note">税务 = 有效销售额（GMV − 退款）× 税率。退款订单不计税。</div>
+      </div>
+
+      <div class="set-group">
+        <div class="set-title">默认费率与成本（新 SKU 的初始值，可在 SKU 成本页单独改）</div>
+        <div class="set-row"><label>平台扣点（%）</label><input type="number" step="0.01" id="setPlatform" class="input input-sm"></div>
+        <div class="set-row"><label>达人佣金（%）</label><input type="number" step="0.01" id="setTalent" class="input input-sm"></div>
+        <div class="set-row"><label>单件运费（元）</label><input type="number" step="0.01" id="setFreight" class="input input-sm"></div>
+        <div class="set-row"><label>单件运费险（元）</label><input type="number" step="0.01" id="setIns" class="input input-sm"></div>
+      </div>
+
+      <div class="set-group">
+        <div class="set-title">统计口径</div>
+        <div class="set-row set-check"><label><input type="checkbox" id="setExcludeCancel"> 剔除取消单（订单已关闭且无售后的未成交单）</label></div>
+        <div class="set-row set-check"><label><input type="checkbox" id="setUnionOnly"> 达人佣金只对「精选联盟」订单计算</label></div>
+        <div class="set-row set-check"><label><input type="checkbox" id="setPendingRefund"> 把「退款中」的订单也计入退款</label></div>
+        <div class="set-row set-check"><label><input type="checkbox" id="setAdFallback"> 所选区间无推广数据时，用推广表「全部」行兜底</label></div>
+      </div>
+
+      <div class="set-actions">
+        <button class="btn btn-primary" id="setSave">保存并重算</button>
+        <button class="btn" data-close="settingsModal">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="assets/xlsx.full.min.js"></script>
+<script src="assets/util.js"></script>
+<script src="assets/store.js"></script>
+<script src="assets/compute.js"></script>
+<script src="assets/import.js"></script>
+<script src="assets/ui.js"></script>
+</body>
+</html>
