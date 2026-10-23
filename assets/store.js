@@ -118,7 +118,24 @@
   function setParam(pid, skuKey, field, val) {
     var p = getParam(pid, skuKey);
     p[field] = U.num(val);
+    p.dirty = 1;                     // 用户单独改过，之后不再被全局默认值覆盖
     saveParams();
+  }
+
+  /* 把设置里的默认值同步到 SKU 参数表。
+     只覆盖用户没有单独改过的，避免冲掉手工调过的成本。 */
+  function applyDefaults() {
+    var updated = 0, kept = 0;
+    for (var k in S.params) {
+      var p = S.params[k];
+      if (p.dirty) { kept++; continue; }
+      p.freight = U.num(S.settings.freight);
+      p.ins = U.num(S.settings.freightIns);
+      p.pr = U.num(S.settings.platformRate);
+      p.tr = U.num(S.settings.talentRate);
+      updated++;
+    }
+    return { updated: updated, kept: kept };
   }
 
   /* ---------- 持久化 ---------- */
@@ -194,6 +211,7 @@
     skuKeyOf: skuKeyOf,
     paramKey: paramKey,
     getParam: getParam,
-    setParam: setParam
+    setParam: setParam,
+    applyDefaults: applyDefaults
   };
 })(window);
