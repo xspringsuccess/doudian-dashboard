@@ -46,8 +46,8 @@
       var r = rows[i];
       var m = Math.min(r.length, 30);
       for (var j = 0; j < m; j++) {
-        var v = r[j];
-        h = ((h * 33) ^ (v ? v.length : 0)) & 0x7fffffff;
+        var v = String(r[j]);
+        h = ((h * 33) ^ (v.length || 0)) & 0x7fffffff;
         if (v) {
           h = ((h * 33) ^ (v.charCodeAt(0) || 0)) & 0x7fffffff;
           h = ((h * 33) ^ (v.charCodeAt(v.length - 1) || 0)) & 0x7fffffff;
@@ -293,6 +293,7 @@
       p.ins = o.ins;
       if (o.pr) p.pr = o.pr;
       if (o.tr) p.tr = o.tr;
+      p.dirty = 1;              // 模板导入的视为单独设置，不被全局默认值覆盖
       n++;
     }
     return n;
