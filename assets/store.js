@@ -1,0 +1,196 @@
+/* 全局状态与持久化 */
+(function (global) {
+  'use strict';
+
+  var DB_NAME = 'dp_profit_v1';
+  var STORE = 'kv';
+  var db = null;
+
+  function openDB() {
+    return new Promise(function (res) {
+      var req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = function (e) {
+        var d = e.target.result;
+        if (!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE);
+      };
+      req.onsuccess = function (e) { res(e.target.result); };
+      req.onerror = function () { res(null); };
+    });
+  }
+
+  function idbGet(key) {
+    return new Promise(function (res) {
+      if (!db) return res(null);
+      try {
+        var tx = db.transaction(STORE, 'readonly');
+        var r = tx.objectStore(STORE).get(key);
+        r.onsuccess = function () { res(r.result || null); };
+        r.onerror = function () { res(null); };
+      } catch (e) { res(null); }
+    });
+  }
+
+  function idbSet(key, val) {
+    return new Promise(function (res) {
+      if (!db) return res(false);
+      try {
+        var tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).put(val, key);
+        tx.oncomplete = function () { res(true); };
+        tx.onerror = function () { res(false); };
+      } catch (e) { res(false); }
+    });
+  }
+
+  function idbDel(key) {
+    return new Promise(function (res) {
+      if (!db) return res(false);
+      try {
+        var tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).delete(key);
+        tx.oncomplete = function () { res(true); };
+        tx.onerror = function () { res(false); };
+      } catch (e) { res(false); }
+    });
+  }
+
+  var DEFAULT_SETTINGS = {
+    taxRate: 0,
+    platformRate: 5,
+    talentRate: 20,
+    freight: 3,
+    freightIns: 0.5,
+    excludeCancelled: true,
+    talentUnionOnly: true,
+    includePendingRefund: false,
+    adFallback: false
+  };
+
+  var S = {
+    tab: 'overview',
+    shop: '__ALL__',
+    shops: [],
+    range: { start: U.todayStr(), end: U.todayStr() },
+    settings: Object.assign({}, DEFAULT_SETTINGS),
+
+    orders: [],            // {shop, pid, skuCode, spec, pname, qty, price, pay, date, status, after, shipAt, traffic}
+    skus: [],              // {pid, pname, skuId, skuCode, spec, price, link}
+    adIndex: {},           // pid|date -> spend
+    adAll: {},             // pid -> 「全部」行消耗
+    adNames: {},           // pid -> 推广表里的商品名
+    pidName: {},           // pid -> 商品名
+    adPids: {},            // pid -> 1
+    adDates: {},           // date -> 1
+    orderDates: {},        // date -> 1
+    params: {},            // pid|skuKey -> {cost,freight,ins,pr,tr}
+    files: [],             // 已导入文件登记
+    fileHashes: {},        // 文件指纹，防重复上传
+
+    ready: false
+  };
+
+  /* ---------- 参数读写 ---------- */
+  function skuKeyOf(sku) {
+    var c = U.code(sku.skuCode);
+    if (c) return c;
+    if (sku.skuId) return 'skuid:' + sku.skuId;
+    return 'spec:' + (U.normSpec(sku.spec) || U.clean(sku.spec));
+  }
+
+  function paramKey(pid, skuKey) { return pid + '|' + skuKey; }
+
+  function getParam(pid, skuKey) {
+    var k = paramKey(pid, skuKey);
+    var p = S.params[k];
+    if (p) return p;
+    p = {
+      cost: 0,
+      freight: S.settings.freight,
+      ins: S.settings.freightIns,
+      pr: S.settings.platformRate,
+      tr: S.settings.talentRate
+    };
+    S.params[k] = p;
+    return p;
+  }
+
+  function setParam(pid, skuKey, field, val) {
+    var p = getParam(pid, skuKey);
+    p[field] = U.num(val);
+    saveParams();
+  }
+
+  /* ---------- 持久化 ---------- */
+  var saveTimer = null;
+  function saveParams() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      idbSet('params', S.params);
+      idbSet('settings', S.settings);
+      idbSet('files', S.files);
+      idbSet('fileHashes', S.fileHashes);
+    }, 400);
+  }
+
+  function saveCore() {
+    idbSet('orders', S.orders);
+    idbSet('skus', S.skus);
+    idbSet('adIndex', S.adIndex);
+    idbSet('adAll', S.adAll);
+    idbSet('adNames', S.adNames);
+    idbSet('pidName', S.pidName);
+    idbSet('adPids', S.adPids);
+    idbSet('adDates', S.adDates);
+    idbSet('orderDates', S.orderDates);
+    idbSet('shops', S.shops);
+    idbSet('files', S.files);
+    idbSet('fileHashes', S.fileHashes);
+    idbSet('params', S.params);
+    idbSet('settings', S.settings);
+  }
+
+  function clearAll() {
+    ['orders', 'skus', 'adIndex', 'adAll', 'adNames', 'pidName', 'adPids', 'adDates', 'orderDates', 'shops', 'files', 'fileHashes', 'params'].forEach(idbDel);
+    S.orders = []; S.skus = []; S.adIndex = {}; S.adAll = {}; S.adNames = {}; S.pidName = {}; S.adPids = {}; S.adDates = {};
+    S.orderDates = {}; S.params = {}; S.shops = []; S.files = []; S.fileHashes = {}; S.shop = '__ALL__';
+  }
+
+  async function load() {
+    db = await openDB();
+    var [orders, skus, adIndex, adAll, adNames, pidName, adPids, adDates, orderDates, shops, files, fileHashes, params, settings] =
+      await Promise.all([
+        idbGet('orders'), idbGet('skus'), idbGet('adIndex'), idbGet('adAll'),
+        idbGet('adNames'), idbGet('pidName'), idbGet('adPids'), idbGet('adDates'),
+        idbGet('orderDates'), idbGet('shops'),
+        idbGet('files'), idbGet('fileHashes'), idbGet('params'), idbGet('settings')
+      ]);
+    if (orders) S.orders = orders;
+    if (skus) S.skus = skus;
+    if (adIndex) S.adIndex = adIndex;
+    if (adAll) S.adAll = adAll;
+    if (adNames) S.adNames = adNames;
+    if (pidName) S.pidName = pidName;
+    if (adPids) S.adPids = adPids;
+    if (adDates) S.adDates = adDates;
+    if (orderDates) S.orderDates = orderDates;
+    if (shops) S.shops = shops;
+    if (files) S.files = files;
+    if (fileHashes) S.fileHashes = fileHashes;
+    if (params) S.params = params;
+    if (settings) S.settings = Object.assign({}, DEFAULT_SETTINGS, settings);
+    S.ready = true;
+  }
+
+  global.STORE = {
+    S: S,
+    DEFAULT_SETTINGS: DEFAULT_SETTINGS,
+    load: load,
+    saveCore: saveCore,
+    saveParams: saveParams,
+    clearAll: clearAll,
+    skuKeyOf: skuKeyOf,
+    paramKey: paramKey,
+    getParam: getParam,
+    setParam: setParam
+  };
+})(window);
