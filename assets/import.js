@@ -136,9 +136,6 @@
       };
       if (o.qty === 0 && o.pay === 0) continue;
       out.push(o);
-      S.orderDates[d] = 1;
-      /* 订单是店铺归属的最可靠依据，优先级高于商品表/推广表 */
-      S.pidShop[pid] = shop;
     }
     return { rows: out };
   }
@@ -235,48 +232,55 @@
   }
 
   /* ---------------- 合并 ---------------- */
-  function mergeOrders(list, shop) {
-    for (var i = 0; i < list.length; i++) S.orders.push(list[i]);
+  function mergeOrders(list, shop, fid) {
+    for (var i = 0; i < list.length; i++) {
+      list[i].fid = fid;
+      S.orders.push(list[i]);
+    }
     if (S.shops.indexOf(shop) < 0) S.shops.push(shop);
   }
 
-  function mergeProducts(list) {
+  function mergeProducts(list, fid) {
     var idx = {};
+    var pids = {};
     for (var i = 0; i < S.skus.length; i++) idx[prodKey(S.skus[i])] = i;
     for (var j = 0; j < list.length; j++) {
       var s = list[j];
       var k = prodKey(s);
-      /* 商品表可给出店铺归属；订单里的归属优先级更高，不覆盖 */
-      if (s.shop && !S.pidShop[s.pid]) S.pidShop[s.pid] = s.shop;
+      pids[s.pid] = 1;
       if (k in idx) {
         var t = S.skus[idx[k]];
         if (s.skuId) t.skuId = s.skuId;
         if (s.price) t.price = s.price;
         if (s.link) t.link = s.link;
         if (s.pname) t.pname = s.pname;
-        if (s.shop && !t.shop) t.shop = s.shop;
       } else {
+        s.fid = fid;
         idx[k] = S.skus.length;
         S.skus.push(s);
       }
     }
+    return Object.keys(pids);
   }
 
+  /* 返回本次文件对推广数据的增量，供单独删除时精确回滚 */
   function mergeAd(list) {
+    var delta = {};
     for (var i = 0; i < list.length; i++) {
       var a = list[i];
       S.adPids[a.pid] = 1;
-      if (a.shop && !S.pidShop[a.pid]) S.pidShop[a.pid] = a.shop;
-      if (a.pname && !S.adNames[a.pid]) S.adNames[a.pid] = a.pname;
       if (a.date === '全部') {
         S.adAll[a.pid] = (S.adAll[a.pid] || 0) + a.spend;
+        delta['ALL|' + a.pid] = (delta['ALL|' + a.pid] || 0) + a.spend;
         continue;
       }
       if (!a.date) continue;
       var k = a.pid + '|' + a.date;
       S.adIndex[k] = (S.adIndex[k] || 0) + a.spend;
       S.adDates[a.date] = 1;
+      delta[k] = (delta[k] || 0) + a.spend;
     }
+    return delta;
   }
 
   function mergeParams(list) {
@@ -292,6 +296,118 @@
       n++;
     }
     return n;
+  }
+
+  /* 从文件清单重算所有派生数据：删掉任一文件后调用即可，不留残渣 */
+  function rebuildDerived() {
+    var newPidShop = {};
+    var newOrderDates = {};
+    var newAdDates = {};
+    var newShops = [];
+
+    /* 1) 推广表（归属最低优先级） */
+    for (var a = 0; a < S.files.length; a++) {
+      var fa = S.files[a];
+      if (fa.type !== 'ad' || !fa.shop) continue;
+      var pidsA = fa.pids || [];
+      for (var pa = 0; pa < pidsA.length; pa++) {
+        if (!newPidShop[pidsA[pa]]) newPidShop[pidsA[pa]] = fa.shop;
+      }
+    }
+    /* 2) 商品表 */
+    for (var b = 0; b < S.files.length; b++) {
+      var fb = S.files[b];
+      if (fb.type !== 'products' || !fb.shop) continue;
+      var pidsB = fb.pids || [];
+      for (var pb = 0; pb < pidsB.length; pb++) {
+        if (!newPidShop[pidsB[pb]]) newPidShop[pidsB[pb]] = fb.shop;
+      }
+    }
+    /* 3) 订单（最可靠，直接覆盖） */
+    for (var c = 0; c < S.orders.length; c++) {
+      var o = S.orders[c];
+      newPidShop[o.pid] = o.shop;
+      newOrderDates[o.date] = 1;
+      if (newShops.indexOf(o.shop) < 0) newShops.push(o.shop);
+    }
+    /* 3.5) 商品表/推广表标过店铺的，即使暂时没订单也要能单独查看 */
+    for (var s = 0; s < S.files.length; s++) {
+      if (!S.files[s].shop) continue;
+      if (newShops.indexOf(S.files[s].shop) < 0) newShops.push(S.files[s].shop);
+    }
+    /* 4) 推广日期 */
+    for (var k in S.adIndex) {
+      var d = k.split('|')[1];
+      if (d) newAdDates[d] = 1;
+    }
+
+    S.pidShop = newPidShop;
+    S.orderDates = newOrderDates;
+    S.adDates = newAdDates;
+    S.shops = newShops;
+    if (S.shops.indexOf(S.shop) < 0) S.shop = '__ALL__';
+  }
+
+  /* 单独删除某份已导入文件，精确回滚它的全部贡献 */
+  function removeFile(id) {
+    var target = null;
+    var rest = [];
+    for (var i = 0; i < S.files.length; i++) {
+      if (S.files[i].id === id) target = S.files[i];
+      else rest.push(S.files[i]);
+    }
+    if (!target) return null;
+
+    var removed = { orders: 0, skus: 0, ad: 0 };
+
+    if (target.type === 'orders') {
+      var keep = [];
+      for (var j = 0; j < S.orders.length; j++) {
+        if (S.orders[j].fid === id) removed.orders++;
+        else keep.push(S.orders[j]);
+      }
+      S.orders = keep;
+    }
+
+    if (target.type === 'products') {
+      var keepS = [];
+      for (var m = 0; m < S.skus.length; m++) {
+        if (S.skus[m].fid === id) removed.skus++;
+        else keepS.push(S.skus[m]);
+      }
+      S.skus = keepS;
+    }
+
+    if (target.type === 'ad' && target.adDelta) {
+      for (var k in target.adDelta) {
+        var v = target.adDelta[k];
+        removed.ad++;
+        if (k.slice(0, 4) === 'ALL|') {
+          var ap = k.slice(4);
+          S.adAll[ap] = (S.adAll[ap] || 0) - v;
+          if (S.adAll[ap] <= 0.000001) delete S.adAll[ap];
+        } else {
+          S.adIndex[k] = (S.adIndex[k] || 0) - v;
+          if (S.adIndex[k] <= 0.000001) delete S.adIndex[k];
+        }
+      }
+      /* 该推广表独有的商品ID 一并移除 */
+      var tp = target.pids || [];
+      for (var q = 0; q < tp.length; q++) {
+        var pid = tp[q];
+        var still = false;
+        for (var kk in S.adIndex) { if (kk.split('|')[0] === pid) { still = true; break; } }
+        if (!still && !S.adAll[pid]) delete S.adPids[pid];
+      }
+    }
+
+    /* 允许重新导入同一份文件 */
+    if (target.hash) delete S.fileHashes[target.hash];
+
+    S.files = rest;
+    relink();
+    rebuildDerived();
+    return removed;
   }
 
   /* 订单与商品表关联，补齐链接/售价/名称 */
@@ -370,41 +486,64 @@
         continue;
       }
       S.fileHashes[fp] = 1;
+      var fid = 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+      var rec = { id: fid, name: name, type: it.type, shop: '', at: Date.now(), hash: fp, n: 0 };
 
       if (it.type === 'orders') {
         var shop = (shopOf && shopOf[name]) || baseName(name);
         var r1 = parseOrders(it.rows, shop);
         if (r1.err) { msgs.push(name + '：' + r1.err); continue; }
-        mergeOrders(r1.rows, shop);
+        mergeOrders(r1.rows, shop, fid);
+        rec.shop = shop;
+        rec.n = r1.rows.length;
         msgs.push(name + '：订单 ' + r1.rows.length + ' 行（店铺「' + shop + '」）');
       } else if (it.type === 'products') {
         var pshop = (shopOf && shopOf[name]) || '';
         var r2 = parseProducts(it.rows, pshop);
         if (r2.err) { msgs.push(name + '：' + r2.err); continue; }
-        mergeProducts(r2.rows);
+        rec.pids = mergeProducts(r2.rows, fid);
+        rec.shop = pshop;
+        rec.n = r2.rows.length;
         msgs.push(name + '：商品 ' + r2.rows.length + ' 个 SKU' + (pshop ? '（归属「' + pshop + '」）' : ''));
       } else if (it.type === 'ad') {
         var ashop = (shopOf && shopOf[name]) || '';
         var r3 = parseAd(it.rows, ashop);
         if (r3.err) { msgs.push(name + '：' + r3.err); continue; }
-        mergeAd(r3.rows);
+        var dt = mergeAd(r3.rows);
+        rec.adDelta = dt;
+        rec.pids = adPidsFromDelta(dt);
+        rec.shop = ashop;
+        rec.n = r3.rows.length;
         msgs.push(name + '：推广 ' + r3.rows.length + ' 行' + (ashop ? '（归属「' + ashop + '」）' : ''));
       } else if (it.type === 'params') {
         var r4 = parseParams(it.rows);
         if (r4.err) { msgs.push(name + '：' + r4.err); continue; }
         var n = mergeParams(r4.rows);
+        rec.n = n;
         msgs.push(name + '：SKU 参数 ' + n + ' 条');
       }
-      S.files.push({ name: name, type: it.type, at: Date.now() });
+      S.files.push(rec);
     }
     relink();
+    rebuildDerived();
     return msgs;
+  }
+
+  function adPidsFromDelta(delta) {
+    var set = {};
+    for (var k in delta) {
+      var part = k.split('|');
+      set[part[0] === 'ALL' ? part[1] : part[0]] = 1;
+    }
+    return Object.keys(set);
   }
 
   global.IMP = {
     sniff: sniff,
     ingest: ingest,
     baseName: baseName,
-    readAny: readAny
+    readAny: readAny,
+    removeFile: removeFile,
+    rebuildDerived: rebuildDerived
   };
 })(window);
