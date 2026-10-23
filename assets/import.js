@@ -137,11 +137,13 @@
       if (o.qty === 0 && o.pay === 0) continue;
       out.push(o);
       S.orderDates[d] = 1;
+      /* 订单是店铺归属的最可靠依据，优先级高于商品表/推广表 */
+      S.pidShop[pid] = shop;
     }
     return { rows: out };
   }
 
-  function parseProducts(rows) {
+  function parseProducts(rows, shop) {
     var hdr = rows[0];
     var c = {
       pid: findCol(hdr, ['商品ID']),
@@ -166,7 +168,8 @@
         skuCode: U.code(g('skuCode')),
         spec: g('spec'),
         price: U.num(g('price')),
-        link: g('link')
+        link: g('link'),
+        shop: shop || ''
       });
     }
     return { rows: out };
@@ -181,7 +184,7 @@
 
   function prodKey(s) { return s.pid + '|' + keyOnly(s); }
 
-  function parseAd(rows) {
+  function parseAd(rows, shop) {
     var hdr = rows[0];
     var c = {
       pid: findCol(hdr, ['商品ID']),
@@ -199,7 +202,7 @@
       var raw = U.clean(g('date'));
       var d = raw === '全部' ? '全部' : U.toDate(raw);
       if (!d) continue;
-      out.push({ pid: pid, pname: g('pname'), date: d, spend: U.num(g('spend')) });
+      out.push({ pid: pid, pname: g('pname'), date: d, spend: U.num(g('spend')), shop: shop || '' });
     }
     return { rows: out };
   }
@@ -243,12 +246,15 @@
     for (var j = 0; j < list.length; j++) {
       var s = list[j];
       var k = prodKey(s);
+      /* 商品表可给出店铺归属；订单里的归属优先级更高，不覆盖 */
+      if (s.shop && !S.pidShop[s.pid]) S.pidShop[s.pid] = s.shop;
       if (k in idx) {
         var t = S.skus[idx[k]];
         if (s.skuId) t.skuId = s.skuId;
         if (s.price) t.price = s.price;
         if (s.link) t.link = s.link;
         if (s.pname) t.pname = s.pname;
+        if (s.shop && !t.shop) t.shop = s.shop;
       } else {
         idx[k] = S.skus.length;
         S.skus.push(s);
@@ -260,6 +266,7 @@
     for (var i = 0; i < list.length; i++) {
       var a = list[i];
       S.adPids[a.pid] = 1;
+      if (a.shop && !S.pidShop[a.pid]) S.pidShop[a.pid] = a.shop;
       if (a.pname && !S.adNames[a.pid]) S.adNames[a.pid] = a.pname;
       if (a.date === '全部') {
         S.adAll[a.pid] = (S.adAll[a.pid] || 0) + a.spend;
@@ -371,15 +378,17 @@
         mergeOrders(r1.rows, shop);
         msgs.push(name + '：订单 ' + r1.rows.length + ' 行（店铺「' + shop + '」）');
       } else if (it.type === 'products') {
-        var r2 = parseProducts(it.rows);
+        var pshop = (shopOf && shopOf[name]) || '';
+        var r2 = parseProducts(it.rows, pshop);
         if (r2.err) { msgs.push(name + '：' + r2.err); continue; }
         mergeProducts(r2.rows);
-        msgs.push(name + '：商品 ' + r2.rows.length + ' 个 SKU');
+        msgs.push(name + '：商品 ' + r2.rows.length + ' 个 SKU' + (pshop ? '（归属「' + pshop + '」）' : ''));
       } else if (it.type === 'ad') {
-        var r3 = parseAd(it.rows);
+        var ashop = (shopOf && shopOf[name]) || '';
+        var r3 = parseAd(it.rows, ashop);
         if (r3.err) { msgs.push(name + '：' + r3.err); continue; }
         mergeAd(r3.rows);
-        msgs.push(name + '：推广 ' + r3.rows.length + ' 行');
+        msgs.push(name + '：推广 ' + r3.rows.length + ' 行' + (ashop ? '（归属「' + ashop + '」）' : ''));
       } else if (it.type === 'params') {
         var r4 = parseParams(it.rows);
         if (r4.err) { msgs.push(name + '：' + r4.err); continue; }
