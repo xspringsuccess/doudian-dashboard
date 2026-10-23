@@ -155,7 +155,7 @@
     var links = res.links.slice().sort(function (a, b) { return b.validGmv - a.validGmv; });
     var h = '<div class="panel"><div class="panel-head">' +
       '<span class="panel-title">全部链接利润</span>' +
-      '<span class="panel-sub">SKU 行的投流费用 = 链接投流 × 该 SKU 有效GMV 占链接的比例（推广报表只到商品ID，无 SKU 级数据）</span></div>' +
+      '<span class="panel-sub">SKU 行投流 = 链接投流 × 该 SKU <b>有效GMV占比</b>（加粗那个）；下方小字是销量占比。抖店推广报表只到商品ID，无 SKU 级数据</span></div>' +
       '<div class="tbl-wrap">' + linkTableHtml(links, true) + '</div></div>';
     $('tab-links').innerHTML = h;
     bindExpand();
@@ -199,12 +199,16 @@
       if (expandable && open) {
         for (var j = 0; j < l.skuList.length; j++) {
           var K = l.skuList[j];
-          var share = l.validQty > 0 ? K.validQty / l.validQty : 0;
+          /* 投流按有效GMV占比分摊；销量占比另外给出，避免两种占比混为一谈 */
+          var qtyShare = l.validQty > 0 ? K.validQty / l.validQty : 0;
+          var gmvShare = l.validGmv > 0 ? K.validGmv / l.validGmv : 0;
           h += '<tr class="sub-row"><td class="l" style="padding-left:34px">' +
             '<span class="sname" title="' + U.esc(K.spec) + '">' + U.esc(K.spec || K.key) + '</span></td>' +
             '<td>' + U.money0(K.validQty) + '</td>' +
             '<td>¥' + U.money(K.validGmv) + '</td>' +
-            '<td>' + U.pct(share, 1) + '<span class="muted"> 占比</span></td>' +
+            '<td title="投流费用按有效GMV占比 ' + (gmvShare * 100).toFixed(2) + '% 分摊；销量占比 ' + (qtyShare * 100).toFixed(2) + '%">' +
+            '<b>' + U.pct(gmvShare, 1) + '</b><span class="muted"> GMV</span>' +
+            '<br><span class="muted" style="font-size:11px">' + U.pct(qtyShare, 1) + ' 销量</span></td>' +
             '<td>¥' + U.money(K.ad) + '</td>' +
             '<td>¥' + U.money(K.cost) + '</td>' +
             '<td class="muted" colspan="2">售价 ¥' + U.money(K.price) + '</td>' +
