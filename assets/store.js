@@ -79,6 +79,7 @@
     adAll: {},             // pid -> 「全部」行消耗
     adNames: {},           // pid -> 推广表里的商品名
     pidName: {},           // pid -> 商品名
+    pidShop: {},           // pid -> 所属店铺（决定单店视图里出现哪些链接）
     adPids: {},            // pid -> 1
     adDates: {},           // date -> 1
     orderDates: {},        // date -> 1
@@ -139,6 +140,7 @@
     idbSet('adAll', S.adAll);
     idbSet('adNames', S.adNames);
     idbSet('pidName', S.pidName);
+    idbSet('pidShop', S.pidShop);
     idbSet('adPids', S.adPids);
     idbSet('adDates', S.adDates);
     idbSet('orderDates', S.orderDates);
@@ -157,10 +159,10 @@
 
   async function load() {
     db = await openDB();
-    var [orders, skus, adIndex, adAll, adNames, pidName, adPids, adDates, orderDates, shops, files, fileHashes, params, settings] =
+    var [orders, skus, adIndex, adAll, adNames, pidName, pidShop, adPids, adDates, orderDates, shops, files, fileHashes, params, settings] =
       await Promise.all([
         idbGet('orders'), idbGet('skus'), idbGet('adIndex'), idbGet('adAll'),
-        idbGet('adNames'), idbGet('pidName'), idbGet('adPids'), idbGet('adDates'),
+        idbGet('adNames'), idbGet('pidName'), idbGet('pidShop'), idbGet('adPids'), idbGet('adDates'),
         idbGet('orderDates'), idbGet('shops'),
         idbGet('files'), idbGet('fileHashes'), idbGet('params'), idbGet('settings')
       ]);
@@ -170,6 +172,7 @@
     if (adAll) S.adAll = adAll;
     if (adNames) S.adNames = adNames;
     if (pidName) S.pidName = pidName;
+    if (pidShop) S.pidShop = pidShop;
     if (adPids) S.adPids = adPids;
     if (adDates) S.adDates = adDates;
     if (orderDates) S.orderDates = orderDates;
