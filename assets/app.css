@@ -251,8 +251,10 @@ table.tbl tbody tr.sub-row td { color: var(--text-2); }
 
 .shop-assign { margin-top: 14px; padding: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; }
 .sa-title { font-size: 13px; margin-bottom: 8px; }
+.sa-note { font-size: 12px; color: var(--text-2); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; margin-bottom: 10px; line-height: 1.6; }
 .sa-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .sa-row span { font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sa-row .imp-tag { flex: 0 0 auto; }
 
 .imported { margin-top: 16px; }
 .imp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 13px; font-weight: 600; }
