@@ -353,6 +353,7 @@
     S.adDates = newAdDates;
     S.shops = newShops;
     if (S.shops.indexOf(S.shop) < 0) S.shop = '__ALL__';
+    if (STORE.checkOrdersSchema) STORE.checkOrdersSchema();
   }
 
   /* 单独删除某份已导入文件，精确回滚它的全部贡献 */
@@ -489,7 +490,10 @@
 
       var fp = fingerprint(it.rows);
       if (S.fileHashes[fp]) {
-        msgs.push(name + '：内容与已导入文件相同，已跳过（避免重复计入）');
+        var hint = it.type === 'orders' && S.ordersStale
+          ? '；当前订单是旧格式，请先在「已载入数据」里删除该订单文件，再重新导入以启用流量体裁/达人筛选'
+          : '';
+        msgs.push(name + '：内容与已导入文件相同，已跳过（避免重复计入）' + hint);
         continue;
       }
       S.fileHashes[fp] = 1;
