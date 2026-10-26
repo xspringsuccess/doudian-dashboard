@@ -57,6 +57,7 @@
   function renderAll() {
     /* 筛选栏只做同步，失败也不能拖累主内容渲染 */
     try { syncFilterBar(); } catch (e) { console.warn('[filter]', e); }
+    try { syncStaleBar(); } catch (e) { console.warn('[stale]', e); }
 
     if (!S.orders.length) {
       var e = '<div class="panel"><div class="empty">还没有订单数据。点击右上角「数据导入」上传抖店订单、商品表与推广数据。</div></div>';
@@ -189,6 +190,22 @@
     fillSelect($('fltFormat'), fm, S.filter.format, '全部流量体裁');
     fillSelect($('fltTalent'), tn, S.filter.talent, '全部达人');
     fillSelect($('fltSource'), src, S.filter.source, '全部流量来源');
+  }
+
+  /* 旧格式订单提示：缺「流量体裁/达人昵称」字段时筛选器无法工作，引导重导 */
+  function syncStaleBar() {
+    var bar = $('staleBar'), txt = $('staleText');
+    if (!bar || !txt) return;
+    if (!S.ordersStale) { bar.classList.add('hidden'); return; }
+    var n = 0;
+    for (var i = 0; i < S.files.length; i++) if (S.files[i].type === 'orders') n++;
+    var bad = S.ordersStaleN || 0, all = S.orders.length || 1;
+    var which = bad >= all
+      ? '当前已导入的订单是旧格式（缺少「流量体裁 / 达人昵称 / 平台承担优惠」三列）'
+      : '有 ' + U.money0(bad) + ' 行订单是旧格式（缺少「流量体裁 / 达人昵称 / 平台承担优惠」三列）';
+    txt.textContent = which + '，所以「流量体裁」「达人」筛选器只有「全部」、成交GMV 也没加上平台优惠。'
+      + (n ? '点右侧按钮删除这 ' + n + ' 份旧订单文件（SKU 成本与费率设置不会丢），再重新导入订单表即可筛选。' : '请重新导入订单表。');
+    bar.classList.remove('hidden');
   }
 
   /* ================= 维度分析看板 ================= */
@@ -992,6 +1009,23 @@
       renderAll();
       renderImpList();
       U.toast('已清空');
+    });
+
+    /* 旧格式订单：一键删掉旧订单文件后引导重导（SKU 成本/设置不受影响） */
+    on('btnFixStale', 'onclick', function () {
+      var ids = [];
+      for (var i = 0; i < S.files.length; i++) {
+        if (S.files[i].type === 'orders') ids.push(S.files[i].id);
+      }
+      if (!ids.length) { openImport(); return; }
+      if (!confirm('将删除已导入的 ' + ids.length + ' 份订单文件，然后请重新选择订单表导入。\n\n' +
+        'SKU 成本、费率设置不会受影响。继续？')) return;
+      for (var j = 0; j < ids.length; j++) IMP.removeFile(ids[j]);
+      STORE.saveCore();
+      renderAll();
+      renderImpList();
+      U.toast('旧订单已移除，请重新选择订单表导入');
+      openImport();
     });
   }
 
