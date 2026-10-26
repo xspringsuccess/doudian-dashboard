@@ -62,6 +62,18 @@
       <button class="chip" data-quick="alldata">全部数据</button>
     </div>
 
+    <div class="fb-group fb-rate">
+      <label class="fb-label">全局税率</label>
+      <input type="number" step="0.01" id="taxTop" class="input input-xs">
+      <span class="fb-unit">%</span>
+    </div>
+
+    <div class="fb-group fb-rate">
+      <label class="fb-label" title="按有效销售额的比例预估还会发生的发货后退款，从 GMV 中扣除">预估发货后退款</label>
+      <input type="number" step="0.01" id="prTop" class="input input-xs">
+      <span class="fb-unit">%</span>
+    </div>
+
     <div class="fb-warn" id="rangeWarn"></div>
   </div>
 
@@ -128,6 +140,15 @@
           <input type="number" step="0.01" id="setTax" class="input input-sm">
         </div>
         <div class="set-note">税务 = 有效销售额（GMV − 退款）× 税率。退款订单不计税。</div>
+      </div>
+
+      <div class="set-group">
+        <div class="set-title">预估发货后退款</div>
+        <div class="set-row">
+          <label>全局预估发货后退款率（%）</label>
+          <input type="number" step="0.01" id="setPostRefund" class="input input-sm">
+        </div>
+        <div class="set-note">按有效销售额的比例，预估还会发生的发货后退款，从 GMV 中扣除。每条链接可在「链接利润」里单独设置来覆盖它。</div>
       </div>
 
       <div class="set-group">
