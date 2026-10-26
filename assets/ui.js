@@ -120,6 +120,9 @@
       kpi('保本 ROI', isFinite(t.breakeven) ? t.breakeven.toFixed(2) : '不可达', '净毛利率 ' + U.pct(t.marginRate)) +
       '</div>';
 
+    /* 每日盈亏图：放在 KPI 卡片与盈亏 TOP 之间 */
+    h += dailyChartHtml(res.daily);
+
     /* TOP 榜 */
     var sorted = res.links.slice().sort(function (a, b) { return b.net - a.net; });
     var top = sorted.filter(function (l) { return l.net > 0; }).slice(0, 10);
@@ -165,12 +168,23 @@
   }
 
   /* ================= 吸顶维度筛选 ================= */
-  function fillSelect(sel, map, cur, allLabel) {
+  /* weight: 可选，{值: 权重}，按权重从大到小排序（同权重按名称） */
+  function fillSelect(sel, map, cur, allLabel, weight) {
     if (!sel) return;
-    var keys = Object.keys(map).sort();
+    var keys = Object.keys(map);
+    if (weight) {
+      keys.sort(function (a, b) {
+        var d = (weight[b] || 0) - (weight[a] || 0);
+        if (Math.abs(d) > 0.000001) return d;
+        return a < b ? -1 : a > b ? 1 : 0;
+      });
+    } else {
+      keys.sort();
+    }
     var html = '<option value="__ALL__">' + allLabel + '</option>';
     for (var i = 0; i < keys.length; i++) {
-      html += '<option value="' + U.esc(keys[i]) + '">' + U.esc(keys[i]) + '</option>';
+      var w = weight ? ' · ¥' + U.money0(weight[keys[i]] || 0) : '';
+      html += '<option value="' + U.esc(keys[i]) + '">' + U.esc(keys[i] + w) + '</option>';
     }
     sel.innerHTML = html;
     var key = sel.id === 'fltFormat' ? 'format' : sel.id === 'fltTalent' ? 'talent' : 'source';
@@ -180,15 +194,20 @@
 
   function syncFilterSelects() {
     var fm = {}, tn = {}, src = {};
+    var tw = {};                    // 达人 -> 当前区间成交GMV（用于排序）
+    var r = S.range;
     for (var i = 0; i < S.orders.length; i++) {
       var o = S.orders[i];
       if (S.shop !== '__ALL__' && o.shop !== S.shop) continue;
       if (o.trafficFormat) fm[o.trafficFormat] = 1;
       if (o.talentName) tn[o.talentName] = 1;
       if (o.traffic) src[o.traffic] = 1;
+      if (o.talentName && o.date >= r.start && o.date <= r.end) {
+        tw[o.talentName] = (tw[o.talentName] || 0) + U.num(o.pay) + U.num(o.platDisc);
+      }
     }
     fillSelect($('fltFormat'), fm, S.filter.format, '全部流量体裁');
-    fillSelect($('fltTalent'), tn, S.filter.talent, '全部达人');
+    fillSelect($('fltTalent'), tn, S.filter.talent, '全部达人', tw);
     fillSelect($('fltSource'), src, S.filter.source, '全部流量来源');
   }
 
@@ -278,8 +297,7 @@
   /* ================= Tab2 链接利润 ================= */
   function renderLinks(res) {
     var links = res.links.slice().sort(function (a, b) { return b.validGmv - a.validGmv; });
-    var h = dailyChartHtml(res.daily) +
-      '<div class="panel"><div class="panel-head">' +
+    var h = '<div class="panel"><div class="panel-head">' +
       '<span class="panel-title">全部链接利润</span>' +
       '<span class="link-expand-btns">' +
       '<button class="btn btn-sm" id="btnExpandAll">全部展开</button>' +
