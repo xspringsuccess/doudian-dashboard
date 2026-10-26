@@ -156,7 +156,9 @@
       '<button class="btn btn-sm" id="btnCollapseAll">全部收起</button>' +
       '</span></div>' +
       '<div class="tbl-wrap">' + linkTableHtml(links, true) + '</div>' +
-      '<div class="panel-foot">点击任意一行即可展开／收起该链接的 SKU 明细。「预估发货后退款率」可直接改，留空则跟随顶部全局值。' +
+      '<div class="panel-foot">点击任意一行即可展开／收起该链接的 SKU 明细。' +
+      '「预估发货后退款率」可单独改，留空则跟随顶部全局值；' +
+      '<b>改顶部全局值时，所有链接（含单独改过的）都会跟着变</b>。' +
       'SKU 行投流 = 链接投流 × 该 SKU <b>有效GMV占比</b>（加粗那个）。</div></div>';
     $('tab-links').innerHTML = h;
     bindExpand();
@@ -211,7 +213,7 @@
         '<input class="cell-input cell-input-xs" data-pr="' + U.esc(l.pid) + '" type="number" step="0.01" ' +
         'value="' + (lp.postRefund === null ? '' : lp.postRefund) + '" ' +
         'placeholder="' + U.num(S.settings.postRefundRate) + '" ' +
-        'title="留空则用全局 ' + U.num(S.settings.postRefundRate) + '%">' +
+        'title="留空则跟随全局（当前 ' + U.num(S.settings.postRefundRate) + '%）；单独填值只改这一条链接；改顶部全局值会重置所有链接">' +
         '<div class="muted" style="font-size:11px">¥' + U.money(l.postRefund) + '</div>' +
         '</td>' +
         '<td>¥' + U.money(l.talentFee) + '</td>' +
@@ -713,8 +715,11 @@
   }
 
   function saveSettings() {
+    var oldPr = U.num(S.settings.postRefundRate);
     S.settings.taxRate = U.num($('setTax').value);
     S.settings.postRefundRate = U.num($('setPostRefund').value);
+    var clearedPr = Math.abs(oldPr - S.settings.postRefundRate) > 0.000001
+      ? STORE.resetLinkPostRefund() : 0;
     S.settings.platformRate = U.num($('setPlatform').value);
     S.settings.talentRate = U.num($('setTalent').value);
     S.settings.freight = U.num($('setFreight').value);
@@ -730,6 +735,7 @@
     renderAll();
     var msg = '设置已保存并重算：' + U.money0(r.updated) + ' 个 SKU 已按新默认值更新';
     if (r.kept) msg += '，' + U.money0(r.kept) + ' 个单独改过的保持不变';
+    if (clearedPr) msg += '；' + clearedPr + ' 条链接的预估退款率已重置为跟随全局';
     U.toast(msg);
   }
 
@@ -788,9 +794,15 @@
       renderAll();
     };
     $('prTop').onchange = function () {
+      var old = U.num(S.settings.postRefundRate);
       S.settings.postRefundRate = U.num(this.value);
+      /* 全局一改，所有链接无条件跟随（含之前单独改过的） */
+      var cleared = Math.abs(old - S.settings.postRefundRate) > 0.000001
+        ? STORE.resetLinkPostRefund() : 0;
       STORE.saveParams();
       renderAll();
+      U.toast('预估发货后退款率已设为 ' + U.num(S.settings.postRefundRate) + '%' +
+        (cleared ? '，' + cleared + ' 条链接的单独设置已重置为跟随全局' : ''));
     };
 
     $('shopSel').onchange = function () { S.shop = this.value; renderAll(); };
