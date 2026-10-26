@@ -8,6 +8,7 @@
   var ACTIVE = { overview: null, links: null, skus: null };
   var expanded = {};        // links tab: pid -> true
   var skuPage = 1, skuFilter = '', skuOnlySold = false;
+  var keepCell = null;      // Tab3 重绘后要还原焦点的格子
 
   /* ================= 基础 ================= */
   function clampRange() {
@@ -36,6 +37,11 @@
 
     $('dateStart').value = S.range.start;
     $('dateEnd').value = S.range.end;
+
+    /* 吸顶的两个全局参数：不要覆盖正在输入的值 */
+    var tt = $('taxTop'), pt = $('prTop');
+    if (tt && document.activeElement !== tt) tt.value = U.num(S.settings.taxRate);
+    if (pt && document.activeElement !== pt) pt.value = U.num(S.settings.postRefundRate);
 
     var chips = document.querySelectorAll('.chip');
     for (var j = 0; j < chips.length; j++) chips[j].classList.remove('on');
@@ -96,6 +102,8 @@
       kpi('达人佣金', '¥' + U.money(t.talentFee), S.settings.talentUnionOnly ? '仅精选联盟订单' : '全部订单') +
       kpi('运费 + 运费险', '¥' + U.money(t.freight + t.ins), '¥' + U.money(t.freight) + ' + ¥' + U.money(t.ins)) +
       kpi('税务（' + U.num(S.settings.taxRate) + '%）', '¥' + U.money(t.tax), '独立显示，不并入净毛利') +
+      kpi('预估发货后退款（' + U.num(S.settings.postRefundRate) + '%）', '¥' + U.money(t.postRefund),
+        '预估金额 ¥' + U.money(t.postRefund) + '，独立显示', t.postRefund > 0 ? 'neg' : '') +
       kpi('净毛利（税前）', '¥' + U.money(t.gross), '净毛利率 ' + U.pct(t.grossRate), t.gross >= 0 ? 'pos' : 'neg') +
       kpi('净利润', '¥' + U.money(t.net), '净利率 ' + U.pct(t.netRate), 'hl ' + netCls) +
       kpi('ROI（净成交）', t.ad > 0 ? t.roi.toFixed(2) : '—', t.ad > 0 ? '成交口径 ' + t.roiRaw.toFixed(2) : '无投流') +
@@ -116,18 +124,6 @@
     h += '<div class="panel"><div class="panel-head"><span class="panel-title">亏损链接 TOP</span><span class="panel-sub">按净利润</span></div>' +
       '<div class="rank">' + rankHtml(bottom, maxBot, true) + '</div></div>';
     h += '</div>';
-
-    /* 明细 */
-    var adOnly = res.links.filter(function (l) { return l.adOnly; });
-    var adOnlySpend = 0;
-    for (var ao = 0; ao < adOnly.length; ao++) adOnlySpend += adOnly[ao].ad;
-    var sortedAll = res.links.slice().sort(function (a, b) { return b.net - a.net; });
-
-    h += '<div class="panel"><div class="panel-head"><span class="panel-title">链接明细</span>' +
-      '<span class="panel-sub">共 ' + res.links.length + ' 条链接' +
-      (adOnly.length ? '，其中 ' + adOnly.length + ' 条只花钱没出单，白烧 ¥' + U.money(adOnlySpend) : '') +
-      '</span></div>' +
-      '<div class="tbl-wrap">' + linkTableHtml(sortedAll, false) + '</div></div>';
 
     $('tab-overview').innerHTML = h;
   }
@@ -155,17 +151,36 @@
     var links = res.links.slice().sort(function (a, b) { return b.validGmv - a.validGmv; });
     var h = '<div class="panel"><div class="panel-head">' +
       '<span class="panel-title">全部链接利润</span>' +
-      '<span class="panel-sub">SKU 行投流 = 链接投流 × 该 SKU <b>有效GMV占比</b>（加粗那个）；下方小字是销量占比。抖店推广报表只到商品ID，无 SKU 级数据</span></div>' +
-      '<div class="tbl-wrap">' + linkTableHtml(links, true) + '</div></div>';
+      '<span class="link-expand-btns">' +
+      '<button class="btn btn-sm" id="btnExpandAll">全部展开</button>' +
+      '<button class="btn btn-sm" id="btnCollapseAll">全部收起</button>' +
+      '</span></div>' +
+      '<div class="tbl-wrap">' + linkTableHtml(links, true) + '</div>' +
+      '<div class="panel-foot">点击任意一行即可展开／收起该链接的 SKU 明细。「预估发货后退款率」可直接改，留空则跟随顶部全局值。' +
+      'SKU 行投流 = 链接投流 × 该 SKU <b>有效GMV占比</b>（加粗那个）。</div></div>';
     $('tab-links').innerHTML = h;
     bindExpand();
+
+    var ea = $('btnExpandAll');
+    if (ea) ea.onclick = function () {
+      for (var i = 0; i < links.length; i++) expanded[links[i].pid] = true;
+      renderLinks(ACTIVE.links);
+    };
+    var ca = $('btnCollapseAll');
+    if (ca) ca.onclick = function () {
+      expanded = {};
+      renderLinks(ACTIVE.links);
+    };
   }
 
   function linkTableHtml(links, expandable) {
-    var h = '<table class="tbl"><thead><tr>' +
+    var h = '<table class="tbl compact"><thead><tr>' +
       '<th class="th-l">商品名称</th>' +
       '<th>销量</th><th>成交GMV</th><th>退款率</th><th>投流费用</th><th>商品成本</th>' +
-      '<th>ROI</th><th>保本ROI</th><th>达人佣金</th><th>平台扣点</th>' +
+      '<th>运费</th><th>运费险</th>' +
+      '<th>ROI</th><th>保本ROI</th>' +
+      '<th>预估发货后<br>退款率</th>' +
+      '<th>达人佣金</th><th>平台扣点</th>' +
       '<th>净毛利</th><th>净利润</th><th>净利率</th>' +
       '</tr></thead><tbody>';
 
@@ -175,8 +190,9 @@
       var roi = CALC.linkRoi(l);
       var be = CALC.linkBreakeven(l);
       var netCls = l.net >= 0 ? 'pos' : 'neg';
+      var lp = STORE.getLinkParam(l.pid);
 
-      h += '<tr class="grp-row" data-pid="' + U.esc(l.pid) + '">' +
+      h += '<tr class="grp-row' + (open ? ' open' : '') + '" data-pid="' + U.esc(l.pid) + '">' +
         '<td class="l">' +
         (expandable ? '<span class="exp" data-toggle="' + U.esc(l.pid) + '">' + (open ? '−' : '+') + '</span>' : '') +
         '<span class="pname" title="' + U.esc(l.pname) + '">' + U.esc(l.pname || l.pid) + '</span>' +
@@ -187,8 +203,17 @@
         '<td class="' + (l.refundRate > 0.25 ? 'neg' : '') + '">' + U.pct(l.refundRate, 1) + '</td>' +
         '<td>¥' + U.money(l.ad) + '</td>' +
         '<td>¥' + U.money(l.cost) + '</td>' +
+        '<td>¥' + U.money(l.freight) + '</td>' +
+        '<td>¥' + U.money(l.ins) + '</td>' +
         '<td>' + (l.ad > 0 ? roi.toFixed(2) : '<span class="muted">自然</span>') + '</td>' +
         '<td class="' + (l.ad > 0 && roi < be ? 'neg' : '') + '">' + (isFinite(be) ? be.toFixed(2) : '—') + '</td>' +
+        '<td>' +
+        '<input class="cell-input cell-input-xs" data-pr="' + U.esc(l.pid) + '" type="number" step="0.01" ' +
+        'value="' + (lp.postRefund === null ? '' : lp.postRefund) + '" ' +
+        'placeholder="' + U.num(S.settings.postRefundRate) + '" ' +
+        'title="留空则用全局 ' + U.num(S.settings.postRefundRate) + '%">' +
+        '<div class="muted" style="font-size:11px">¥' + U.money(l.postRefund) + '</div>' +
+        '</td>' +
         '<td>¥' + U.money(l.talentFee) + '</td>' +
         '<td>¥' + U.money(l.platformFee) + '</td>' +
         '<td>¥' + U.money(l.gross) + '</td>' +
@@ -211,7 +236,10 @@
             '<br><span class="muted" style="font-size:11px">' + U.pct(qtyShare, 1) + ' 销量</span></td>' +
             '<td>¥' + U.money(K.ad) + '</td>' +
             '<td>¥' + U.money(K.cost) + '</td>' +
+            '<td>¥' + U.money(K.freight) + '</td>' +
+            '<td>¥' + U.money(K.ins) + '</td>' +
             '<td class="muted" colspan="2">售价 ¥' + U.money(K.price) + '</td>' +
+            '<td class="muted">¥' + U.money(K.postRefund) + '</td>' +
             '<td>¥' + U.money(K.talentFee) + '</td>' +
             '<td>¥' + U.money(K.platformFee) + '</td>' +
             '<td class="muted">税 ¥' + U.money(K.tax) + '</td>' +
@@ -226,13 +254,30 @@
   }
 
   function bindExpand() {
-    var toggles = document.querySelectorAll('[data-toggle]');
-    for (var i = 0; i < toggles.length; i++) {
-      toggles[i].onclick = function (e) {
-        e.stopPropagation();
-        var pid = this.getAttribute('data-toggle');
-        expanded[pid] = !expanded[pid];
+    /* 点整行的任意位置都能展开／收起；点输入框不触发 */
+    var rows = document.querySelectorAll('.grp-row[data-pid]');
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].onclick = function (e) {
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.classList.contains('exp'))) {
+          if (e.target.classList.contains('exp')) {
+            expanded[this.getAttribute('data-pid')] = !expanded[this.getAttribute('data-pid')];
+            renderLinks(ACTIVE.links);
+          }
+          return;
+        }
+        expanded[this.getAttribute('data-pid')] = !expanded[this.getAttribute('data-pid')];
         renderLinks(ACTIVE.links);
+      };
+    }
+
+    /* 每条链接的预估发货后退款率 */
+    var prs = document.querySelectorAll('[data-pr]');
+    for (var j = 0; j < prs.length; j++) {
+      prs[j].onchange = function () {
+        var pid = this.getAttribute('data-pr');
+        var v = this.value;
+        STORE.setLinkParam(pid, 'postRefund', (v === '' ? null : v));
+        renderAll();
       };
     }
   }
@@ -241,6 +286,11 @@
   function renderSkus(res) {
     var tax = U.num(S.settings.taxRate);
     var skuMap = res.skuMap || {};
+
+    /* 重绘前先记下表格内滚动位置和页面滚动位置 */
+    var wrap = $('tab-skus').querySelector ? $('tab-skus').querySelector('.tbl-wrap') : null;
+    var keepTop = wrap ? wrap.scrollTop : 0;
+    var keepWin = window.pageYOffset || 0;
 
     var rows = S.skus.map(function (s) {
       var key = STORE.skuKeyOf(s);
@@ -351,6 +401,19 @@
     h += '</div>';
     $('tab-skus').innerHTML = h;
     bindSkuEvents();
+
+    /* 还原滚动位置 + 焦点，填成本时不会被顶回第一行 */
+    if (keepTop || keepWin) {
+      var w2 = $('tab-skus').querySelector('.tbl-wrap');
+      if (w2) w2.scrollTop = keepTop;
+      if (keepWin) window.scrollTo(0, keepWin);
+    }
+    if (keepCell) {
+      var sel = '[data-pid="' + keepCell.pid + '"][data-k="' + keepCell.k + '"][data-f="' + keepCell.f + '"]';
+      var el = $('tab-skus').querySelector(sel);
+      if (el) { el.focus(); el.select(); }
+      keepCell = null;
+    }
   }
 
   function bindSkuEvents() {
@@ -366,7 +429,12 @@
     var inputs = document.querySelectorAll('.cell-input');
     for (var i = 0; i < inputs.length; i++) {
       inputs[i].onchange = function () {
-        STORE.setParam(this.getAttribute('data-pid'), this.getAttribute('data-k'), this.getAttribute('data-f'), this.value);
+        var pid = this.getAttribute('data-pid');
+        var k = this.getAttribute('data-k');
+        var f = this.getAttribute('data-f');
+        STORE.setParam(pid, k, f, this.value);
+        /* 记录刚编辑的格子，重绘后把滚动位置和焦点还原回去，不会跳回顶部 */
+        keepCell = { pid: pid, k: k, f: f };
         renderAll();
       };
     }
@@ -441,12 +509,13 @@
       /* 单店视图下只导出该店铺的 SKU，避免两家店的成本参数混在一个表里 */
       var src = S.skus;
       if (S.shop !== '__ALL__') src = src.filter(function (s) { return S.pidShop[s.pid] === S.shop; });
-      var aoa = [['商品ID', '商品名称', '规格', 'SKU编码', '售价', '商品成本', '运费', '运费险', '平台扣点(%)', '达人佣金(%)']];
+      /* 多带一列「参数键」保证回填时对得上（商家编码常为空，光靠它定位会失败） */
+      var aoa = [['商品ID', '商品名称', '规格', 'SKU编码', '参数键(勿改)', '售价', '商品成本', '运费', '运费险', '平台扣点(%)', '达人佣金(%)']];
       for (var i = 0; i < src.length; i++) {
         var s = src[i];
         var key = STORE.skuKeyOf(s);
         var p = STORE.getParam(s.pid, key);
-        aoa.push([s.pid, s.pname, s.spec, s.skuCode, s.price,
+        aoa.push([s.pid, s.pname, s.spec, s.skuCode, key, s.price,
         U.num(p.cost), U.num(p.freight), U.num(p.ins), U.num(p.pr), U.num(p.tr)]);
       }
       var ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -465,45 +534,77 @@
     IMP.readAny(file).then(function (rows) {
       U.loading(false);
       if (!rows.length) { U.toast('模板为空'); return; }
-      var parsed = [];
+
       var hdr = rows[0];
       for (var hc = 0; hc < hdr.length; hc++) hdr[hc] = U.clean(hdr[hc]);
-      var idx = { pid: 0, pname: 1, spec: 2, skuCode: 3, price: 4, cost: 5, freight: 6, ins: 7, pr: 8, tr: 9 };
-      if (hdr.join('').indexOf('商品ID') >= 0) {
-        for (var hc2 = 0; hc2 < hdr.length; hc2++) {
-          if (hdr[hc2] === '商品ID') idx.pid = hc2;
-          else if (hdr[hc2] === '商品名称') idx.pname = hc2;
-          else if (hdr[hc2] === '规格') idx.spec = hc2;
-          else if (hdr[hc2] === 'SKU编码') idx.skuCode = hc2;
-          else if (hdr[hc2] === '售价') idx.price = hc2;
-          else if (hdr[hc2] === '商品成本') idx.cost = hc2;
-          else if (hdr[hc2] === '运费') idx.freight = hc2;
-          else if (hdr[hc2] === '运费险') idx.ins = hc2;
-          else if (hdr[hc2] === '平台扣点(%)') idx.pr = hc2;
-          else if (hdr[hc2] === '达人佣金(%)') idx.tr = hc2;
-        }
+
+      /* 按列名定位，兼容列顺序被打乱或列数不同 */
+      var idx = { pid: 0, pname: 1, spec: 2, skuCode: 3, pkey: -1, price: 4, cost: 5, freight: 6, ins: 7, pr: 8, tr: 9 };
+      for (var hc2 = 0; hc2 < hdr.length; hc2++) {
+        var nm = hdr[hc2];
+        if (nm === '商品ID') idx.pid = hc2;
+        else if (nm === '商品名称') idx.pname = hc2;
+        else if (nm === '规格') idx.spec = hc2;
+        else if (nm === 'SKU编码' || nm === '商家编码' || nm === '商家SKU编码') idx.skuCode = hc2;
+        else if (nm.indexOf('参数键') >= 0) idx.pkey = hc2;
+        else if (nm === '售价' || nm === '商品价格') idx.price = hc2;
+        else if (nm === '商品成本') idx.cost = hc2;
+        else if (nm === '运费' || nm === '单件运费') idx.freight = hc2;
+        else if (nm === '运费险') idx.ins = hc2;
+        else if (nm.indexOf('平台扣点') >= 0) idx.pr = hc2;
+        else if (nm.indexOf('达人佣金') >= 0) idx.tr = hc2;
       }
+
       var hasHdr = /商品ID/.test(hdr.join(''));
       var i0 = hasHdr ? 1 : 0;
+
+      /* 商品ID → (规格 → 内部参数键) 索引，供 SKU编码 为空时兜底匹配 */
+      var bySpec = {};
+      for (var s = 0; s < S.skus.length; s++) {
+        var sk = S.skus[s];
+        var k1 = bySpec[sk.pid] || (bySpec[sk.pid] = {});
+        k1[U.normSpec(sk.spec) || U.clean(sk.spec)] = STORE.skuKeyOf(sk);
+      }
+
+      var parsed = [];
+      var noPid = 0, noKey = 0;
       for (var i = i0; i < rows.length; i++) {
         var r = rows[i];
-        if (!r[idx.pid] || !r[idx.skuCode]) continue;
+        var pid = U.clean(r[idx.pid]);
+        if (!pid) { noPid++; continue; }
+
+        var key = '';
+        if (idx.pkey >= 0) key = U.clean(r[idx.pkey]);
+        if (!key && idx.skuCode >= 0) key = U.clean(r[idx.skuCode]);
+        if (!key) {
+          /* SKU编码整列为空时用「商品ID + 规格」定位 */
+          var spec = idx.spec >= 0 ? U.clean(r[idx.spec]) : '';
+          var m = bySpec[pid];
+          if (m) key = m[U.normSpec(spec) || spec] || '';
+        }
+        if (!key) { noKey++; continue; }
+
         parsed.push({
-          pid: r[idx.pid], skuCode: r[idx.skuCode],
+          pid: pid, skuCode: key,
           cost: U.num(r[idx.cost]), freight: U.num(r[idx.freight]),
           ins: U.num(r[idx.ins]), pr: U.pctNum(r[idx.pr]), tr: U.pctNum(r[idx.tr])
         });
       }
-      if (!parsed.length) { U.toast('未识别到数据行'); return; }
+
+      if (!parsed.length) {
+        U.toast('未识别到数据行（缺商品ID ' + noPid + ' 行；定位不到 SKU ' + noKey + ' 行）');
+        return;
+      }
       for (var j = 0; j < parsed.length; j++) {
         var o = parsed[j];
         var p = STORE.getParam(o.pid, o.skuCode);
         p.cost = o.cost; p.freight = o.freight; p.ins = o.ins;
         p.pr = o.pr; p.tr = o.tr;
+        p.dirty = 1;
       }
       STORE.saveParams();
       renderAll();
-      U.toast('已导入 ' + parsed.length + ' 条 SKU 参数');
+      U.toast('已导入 ' + parsed.length + ' 条 SKU 参数' + (noKey ? '（' + noKey + ' 行未匹配，已跳过）' : ''));
     }).catch(function () { U.loading(false); U.toast('解析失败'); });
   }
 
@@ -599,6 +700,7 @@
   function openSettings() {
     var s = S.settings;
     $('setTax').value = s.taxRate;
+    $('setPostRefund').value = s.postRefundRate;
     $('setPlatform').value = s.platformRate;
     $('setTalent').value = s.talentRate;
     $('setFreight').value = s.freight;
@@ -612,6 +714,7 @@
 
   function saveSettings() {
     S.settings.taxRate = U.num($('setTax').value);
+    S.settings.postRefundRate = U.num($('setPostRefund').value);
     S.settings.platformRate = U.num($('setPlatform').value);
     S.settings.talentRate = U.num($('setTalent').value);
     S.settings.freight = U.num($('setFreight').value);
@@ -678,6 +781,17 @@
         renderAll();
       };
     }
+
+    $('taxTop').onchange = function () {
+      S.settings.taxRate = U.num(this.value);
+      STORE.saveParams();
+      renderAll();
+    };
+    $('prTop').onchange = function () {
+      S.settings.postRefundRate = U.num(this.value);
+      STORE.saveParams();
+      renderAll();
+    };
 
     $('shopSel').onchange = function () { S.shop = this.value; renderAll(); };
     $('dateStart').onchange = function () { S.range.start = this.value; clampRange(); renderAll(); };
