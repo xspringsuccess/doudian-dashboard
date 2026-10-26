@@ -46,6 +46,8 @@
 
     var chips = document.querySelectorAll('.chip');
     for (var j = 0; j < chips.length; j++) chips[j].classList.remove('on');
+
+    syncFilterSelects();
   }
 
   /* ================= 渲染入口 ================= */
@@ -126,6 +128,14 @@
       '<div class="rank">' + rankHtml(bottom, maxBot, true) + '</div></div>';
     h += '</div>';
 
+    /* 维度分析看板：按流量体裁 / 达人 / 流量来源 拆分有效GMV与净毛利 */
+    var gb = res.groups || {};
+    h += '<div class="cols3">' +
+      breakdownHtml('按流量体裁', gb.format, 8) +
+      breakdownHtml('按达人', gb.talent, 10) +
+      breakdownHtml('按流量来源', gb.source, 8) +
+      '</div>';
+
     $('tab-overview').innerHTML = h;
   }
 
@@ -147,10 +157,106 @@
     return h;
   }
 
+  /* ================= 吸顶维度筛选 ================= */
+  function fillSelect(sel, map, cur, allLabel) {
+    if (!sel) return;
+    var keys = Object.keys(map).sort();
+    var html = '<option value="__ALL__">' + allLabel + '</option>';
+    for (var i = 0; i < keys.length; i++) {
+      html += '<option value="' + U.esc(keys[i]) + '">' + U.esc(keys[i]) + '</option>';
+    }
+    sel.innerHTML = html;
+    var key = sel.id === 'fltFormat' ? 'format' : sel.id === 'fltTalent' ? 'talent' : 'source';
+    sel.value = (cur && map[cur]) ? cur : '__ALL__';
+    if (sel.value === '__ALL__') S.filter[key] = '__ALL__';
+  }
+
+  function syncFilterSelects() {
+    var fm = {}, tn = {}, src = {};
+    for (var i = 0; i < S.orders.length; i++) {
+      var o = S.orders[i];
+      if (S.shop !== '__ALL__' && o.shop !== S.shop) continue;
+      if (o.trafficFormat) fm[o.trafficFormat] = 1;
+      if (o.talentName) tn[o.talentName] = 1;
+      if (o.traffic) src[o.traffic] = 1;
+    }
+    fillSelect($('fltFormat'), fm, S.filter.format, '全部流量体裁');
+    fillSelect($('fltTalent'), tn, S.filter.talent, '全部达人');
+    fillSelect($('fltSource'), src, S.filter.source, '全部流量来源');
+  }
+
+  /* ================= 维度分析看板 ================= */
+  function breakdownHtml(title, rows, maxRows) {
+    if (!rows || !rows.length) return '';
+    var show = rows;
+    if (maxRows && rows.length > maxRows) {
+      show = rows.slice(0, maxRows - 1);
+      var other = { name: '其他（' + (rows.length - show.length) + '项）', gmv: 0, validGmv: 0, cost: 0, freight: 0, ins: 0, platformFee: 0, talentFee: 0, tax: 0, postRefund: 0, net: 0, qty: 0 };
+      for (var x = maxRows - 1; x < rows.length; x++) {
+        var rr = rows[x];
+        other.gmv += rr.gmv; other.validGmv += rr.validGmv; other.cost += rr.cost; other.freight += rr.freight;
+        other.ins += rr.ins; other.platformFee += rr.platformFee; other.talentFee += rr.talentFee;
+        other.tax += rr.tax; other.postRefund += rr.postRefund; other.net += rr.net; other.qty += rr.qty;
+      }
+      show = show.concat([other]);
+    }
+    var max = 1;
+    for (var i = 0; i < show.length; i++) max = Math.max(max, Math.abs(show[i].net));
+    var totalValid = 0;
+    for (var j = 0; j < show.length; j++) totalValid += show[j].validGmv;
+    totalValid = totalValid || 1;
+    var h = '<div class="panel"><div class="panel-head"><span class="panel-title">' + title + '</span>' +
+      '<span class="panel-sub">净毛利不含投流</span></div><div class="brk">';
+    for (var k = 0; k < show.length; k++) {
+      var r = show[k];
+      var w = Math.round(Math.abs(r.net) / max * 100);
+      var cls = r.net >= 0 ? 'pos' : 'neg';
+      var share = (r.validGmv / totalValid * 100);
+      h += '<div class="brk-item">' +
+        '<div class="brk-name" title="' + U.esc(r.name) + '">' + U.esc(r.name) + '</div>' +
+        '<div class="brk-bar ' + (r.net >= 0 ? 'pos' : 'neg') + '"><i style="width:' + w + '%"></i></div>' +
+        '<div class="brk-val"><span class="' + cls + '">¥' + U.money(r.net) + '</span>' +
+        ' <span class="muted">有效GMV ¥' + U.money(r.validGmv) + ' · ' + share.toFixed(1) + '%</span></div>' +
+        '</div>';
+    }
+    h += '</div></div>';
+    return h;
+  }
+
+  /* 紧凑每日盈亏柱状图（红涨绿跌，含投流） */
+  function dailyChartHtml(daily) {
+    if (!daily || !daily.length) return '';
+    var W = 680, H = 132, pad = 16;
+    var n = daily.length;
+    var maxAbs = 1;
+    for (var i = 0; i < n; i++) maxAbs = Math.max(maxAbs, Math.abs(daily[i].net));
+    var mid = H / 2;
+    var bw = (W - pad * 2) / n;
+    var barW = Math.max(2, bw * 0.62);
+    var svg = '<svg class="daily-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">';
+    svg += '<line x1="0" y1="' + mid + '" x2="' + W + '" y2="' + mid + '" stroke="#e3e6ee" stroke-width="1"/>';
+    for (var d = 0; d < n; d++) {
+      var x = pad + bw * d + (bw - barW) / 2;
+      var hh = Math.abs(daily[d].net) / maxAbs * (mid - pad);
+      var y = daily[d].net >= 0 ? mid - hh : mid;
+      var col = daily[d].net >= 0 ? '#e23b3b' : '#1faa59';
+      svg += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) +
+        '" height="' + Math.max(0.5, hh).toFixed(1) + '" fill="' + col + '">' +
+        '<title>' + daily[d].date + ' 净盈亏 ¥' + U.money(daily[d].net) + '（有效GMV ¥' + U.money(daily[d].validGmv) + '）</title></rect>';
+    }
+    svg += '</svg>';
+    var tot = 0;
+    for (var t = 0; t < n; t++) tot += daily[t].net;
+    return '<div class="panel"><div class="panel-head"><span class="panel-title">每日盈亏</span>' +
+      '<span class="panel-sub">红涨绿跌 · 含投流 · 合计 ¥' + U.money(tot) + '</span></div>' +
+      '<div class="daily-chart">' + svg + '</div></div>';
+  }
+
   /* ================= Tab2 链接利润 ================= */
   function renderLinks(res) {
     var links = res.links.slice().sort(function (a, b) { return b.validGmv - a.validGmv; });
-    var h = '<div class="panel"><div class="panel-head">' +
+    var h = dailyChartHtml(res.daily) +
+      '<div class="panel"><div class="panel-head">' +
       '<span class="panel-title">全部链接利润</span>' +
       '<span class="link-expand-btns">' +
       '<button class="btn btn-sm" id="btnExpandAll">全部展开</button>' +
@@ -825,6 +931,10 @@
     $('shopSel').onchange = function () { S.shop = this.value; renderAll(); };
     $('dateStart').onchange = function () { S.range.start = this.value; clampRange(); renderAll(); };
     $('dateEnd').onchange = function () { S.range.end = this.value; clampRange(); renderAll(); };
+
+    $('fltFormat').onchange = function () { S.filter.format = this.value; renderAll(); };
+    $('fltTalent').onchange = function () { S.filter.talent = this.value; renderAll(); };
+    $('fltSource').onchange = function () { S.filter.source = this.value; renderAll(); };
 
     var chips = document.querySelectorAll('.chip');
     for (var c = 0; c < chips.length; c++) {
