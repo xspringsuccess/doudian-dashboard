@@ -106,6 +106,26 @@ html, body {
 .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .fb-warn { font-size: 12px; color: var(--warn-tx); background: var(--warn-bg); border: 1px solid var(--warn-bd); border-radius: 7px; padding: 4px 10px; }
 
+/* 旧格式订单提示条 */
+.stale-bar {
+  display: flex; align-items: center; gap: 10px;
+  margin: 12px 18px 0;
+  padding: 10px 14px;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-bd);
+  border-radius: 9px;
+  font-size: 13px;
+  color: var(--warn-tx);
+}
+.stale-bar.hidden { display: none; }
+.stale-ico {
+  flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--warn-bd); color: #fff;
+  font-size: 12px; font-weight: 700; line-height: 18px; text-align: center;
+}
+.stale-text { flex: 1 1 auto; line-height: 1.5; }
+.stale-bar .btn { flex: 0 0 auto; }
+
 .content { padding: 16px 18px 40px; }
 
 /* ---------- controls ---------- */
