@@ -27,17 +27,20 @@
 
   function syncFilterBar() {
     var sel = $('shopSel');
-    var cur = S.shop;
-    var html = '<option value="__ALL__">全部店铺（汇总）</option>';
-    for (var i = 0; i < S.shops.length; i++) {
-      html += '<option value="' + U.esc(S.shops[i]) + '">' + U.esc(S.shops[i]) + '</option>';
+    if (sel) {
+      var cur = S.shop;
+      var html = '<option value="__ALL__">全部店铺（汇总）</option>';
+      for (var i = 0; i < S.shops.length; i++) {
+        html += '<option value="' + U.esc(S.shops[i]) + '">' + U.esc(S.shops[i]) + '</option>';
+      }
+      sel.innerHTML = html;
+      sel.value = (cur === '__ALL__' || S.shops.indexOf(cur) >= 0) ? cur : '__ALL__';
+      S.shop = sel.value;
     }
-    sel.innerHTML = html;
-    sel.value = (cur === '__ALL__' || S.shops.indexOf(cur) >= 0) ? cur : '__ALL__';
-    S.shop = sel.value;
 
-    $('dateStart').value = S.range.start;
-    $('dateEnd').value = S.range.end;
+    var ds = $('dateStart'), de = $('dateEnd');
+    if (ds) ds.value = S.range.start;
+    if (de) de.value = S.range.end;
 
     /* 吸顶的两个全局参数：不要覆盖正在输入的值 */
     var tt = $('taxTop'), pt = $('prTop');
@@ -52,14 +55,15 @@
 
   /* ================= 渲染入口 ================= */
   function renderAll() {
-    syncFilterBar();
+    /* 筛选栏只做同步，失败也不能拖累主内容渲染 */
+    try { syncFilterBar(); } catch (e) { console.warn('[filter]', e); }
 
     if (!S.orders.length) {
       var e = '<div class="panel"><div class="empty">还没有订单数据。点击右上角「数据导入」上传抖店订单、商品表与推广数据。</div></div>';
       $('tab-overview').innerHTML = e;
       $('tab-links').innerHTML = e;
       $('tab-skus').innerHTML = '<div class="panel"><div class="empty">导入商品表后可在此批量维护 SKU 成本。</div></div>';
-      $('rangeWarn').classList.add('hidden');
+      var rw0 = $('rangeWarn'); if (rw0) rw0.classList.add('hidden');
       return;
     }
 
@@ -69,11 +73,13 @@
     ACTIVE.skus = res;
 
     var w = $('rangeWarn');
-    if (res.warns.length) {
-      w.textContent = res.warns.join(' ');
-      w.classList.remove('hidden');
-    } else {
-      w.classList.add('hidden');
+    if (w) {
+      if (res.warns.length) {
+        w.textContent = res.warns.join(' ');
+        w.classList.remove('hidden');
+      } else {
+        w.classList.add('hidden');
+      }
     }
 
     if (S.tab === 'overview') renderOverview(res);
@@ -897,26 +903,30 @@
   }
 
   /* ================= 事件绑定 ================= */
+  /* 安全绑定：节点缺失时静默跳过，避免一处 DOM 不符导致整页脚本中断 */
+  function on(id, ev, fn) {
+    var el = $(id);
+    if (el) el[ev] = fn;
+    return el;
+  }
+
   function bind() {
     var segs = document.querySelectorAll('.seg-btn');
     for (var i = 0; i < segs.length; i++) {
       segs[i].onclick = function () {
         var t = this.getAttribute('data-tab');
         S.tab = t;
-        for (var j = 0; j < segs.length; j++) segs[j].classList.toggle('active', segs[j] === this);
-        $('tab-overview').classList.toggle('hidden', t !== 'overview');
-        $('tab-links').classList.toggle('hidden', t !== 'links');
-        $('tab-skus').classList.toggle('hidden', t !== 'skus');
+        applyTab();
         renderAll();
       };
     }
 
-    $('taxTop').onchange = function () {
+    on('taxTop', 'onchange', function () {
       S.settings.taxRate = U.num(this.value);
       STORE.saveParams();
       renderAll();
-    };
-    $('prTop').onchange = function () {
+    });
+    on('prTop', 'onchange', function () {
       var old = U.num(S.settings.postRefundRate);
       S.settings.postRefundRate = U.num(this.value);
       /* 全局一改，所有链接无条件跟随（含之前单独改过的） */
@@ -926,44 +936,47 @@
       renderAll();
       U.toast('预估发货后退款率已设为 ' + U.num(S.settings.postRefundRate) + '%' +
         (cleared ? '，' + cleared + ' 条链接的单独设置已重置为跟随全局' : ''));
-    };
+    });
 
-    $('shopSel').onchange = function () { S.shop = this.value; renderAll(); };
-    $('dateStart').onchange = function () { S.range.start = this.value; clampRange(); renderAll(); };
-    $('dateEnd').onchange = function () { S.range.end = this.value; clampRange(); renderAll(); };
+    on('shopSel', 'onchange', function () { S.shop = this.value; renderAll(); });
+    on('dateStart', 'onchange', function () { S.range.start = this.value; clampRange(); renderAll(); });
+    on('dateEnd', 'onchange', function () { S.range.end = this.value; clampRange(); renderAll(); });
 
-    $('fltFormat').onchange = function () { S.filter.format = this.value; renderAll(); };
-    $('fltTalent').onchange = function () { S.filter.talent = this.value; renderAll(); };
-    $('fltSource').onchange = function () { S.filter.source = this.value; renderAll(); };
+    on('fltFormat', 'onchange', function () { S.filter.format = this.value; renderAll(); });
+    on('fltTalent', 'onchange', function () { S.filter.talent = this.value; renderAll(); });
+    on('fltSource', 'onchange', function () { S.filter.source = this.value; renderAll(); });
 
     var chips = document.querySelectorAll('.chip');
     for (var c = 0; c < chips.length; c++) {
       chips[c].onclick = function () { quick(this.getAttribute('data-quick')); };
     }
 
-    $('btnImport').onclick = openImport;
-    $('btnSettings').onclick = openSettings;
-    $('setSave').onclick = saveSettings;
+    on('btnImport', 'onclick', openImport);
+    on('btnSettings', 'onclick', openSettings);
+    on('setSave', 'onclick', saveSettings);
 
     var closers = document.querySelectorAll('[data-close]');
     for (var k = 0; k < closers.length; k++) {
       closers[k].onclick = function () {
-        $(this.getAttribute('data-close')).classList.add('hidden');
+        var box = $(this.getAttribute('data-close'));
+        if (box) box.classList.add('hidden');
       };
     }
 
     var dz = $('dz'), fi = $('fileInput');
-    dz.onclick = function () { fi.click(); };
-    fi.onchange = function () { handleFiles(this.files); this.value = ''; };
-    dz.ondragover = function (e) { e.preventDefault(); dz.classList.add('over'); };
-    dz.ondragleave = function () { dz.classList.remove('over'); };
-    dz.ondrop = function (e) {
-      e.preventDefault();
-      dz.classList.remove('over');
-      handleFiles(e.dataTransfer.files);
-    };
+    if (dz && fi) {
+      dz.onclick = function () { fi.click(); };
+      fi.onchange = function () { handleFiles(this.files); this.value = ''; };
+      dz.ondragover = function (e) { e.preventDefault(); dz.classList.add('over'); };
+      dz.ondragleave = function () { dz.classList.remove('over'); };
+      dz.ondrop = function (e) {
+        e.preventDefault();
+        dz.classList.remove('over');
+        handleFiles(e.dataTransfer.files);
+      };
+    }
 
-    $('saConfirm').onclick = function () {
+    on('saConfirm', 'onclick', function () {
       if (!pending) return;
       var map = {};
       var ins = document.querySelectorAll('[data-shopfor]');
@@ -971,26 +984,47 @@
         map[ins[i].getAttribute('data-shopfor')] = ins[i].value.trim() || IMP.baseName(ins[i].getAttribute('data-shopfor'));
       }
       finishIngest(pending, map);
-    };
+    });
 
-    $('btnClearAll').onclick = function () {
+    on('btnClearAll', 'onclick', function () {
       if (!confirm('确定清空全部已导入数据？此操作不可撤销。')) return;
       STORE.clearAll();
       renderAll();
       renderImpList();
       U.toast('已清空');
-    };
+    });
   }
 
   /* ================= 启动 ================= */
+  /* 让当前 tab 的分页/按钮状态与 S.tab 保持一致 */
+  function applyTab() {
+    var segs = document.querySelectorAll('.seg-btn');
+    for (var i = 0; i < segs.length; i++) {
+      segs[i].classList.toggle('active', segs[i].getAttribute('data-tab') === S.tab);
+    }
+    ['overview', 'links', 'skus'].forEach(function (t) {
+      var p = $('tab-' + t);
+      if (p) p.classList.toggle('hidden', t !== S.tab);
+    });
+  }
+
   function boot() {
     STORE.load().then(function () {
-      $('boot').remove();
-      $('app').classList.remove('hidden');
-      bind();
-      if (S.orders.length) autoFit();
-      else quick('7d');
-      renderAll();
+      var b = $('boot'); if (b && b.parentNode) b.parentNode.removeChild(b);
+      var app = $('app'); if (app) app.classList.remove('hidden');
+      try { bind(); } catch (e) { console.warn('[bind]', e); }
+      if (S.orders.length) autoFit(); else quick('7d');
+      applyTab();
+      try { renderAll(); } catch (e) { console.error('[render]', e); }
+      /* 兜底：若当前 tab 仍是空白（渲染中途异常），再补一次 */
+      try {
+        var pane = $('tab-' + S.tab);
+        if (S.orders.length && pane && !pane.innerHTML.trim()) renderAll();
+      } catch (e2) { console.error('[rerender]', e2); }
+    }).catch(function (e) {
+      console.error('[boot]', e);
+      var b = $('boot');
+      if (b) b.innerHTML = '<div class="boot-card"><h1>加载失败</h1><p>' + U.esc(String(e && e.message || e)) + '</p></div>';
     });
   }
 
