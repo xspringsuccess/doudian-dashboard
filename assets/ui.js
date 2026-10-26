@@ -336,7 +336,7 @@
 
     h += '<div class="panel">';
     h += '<div class="sku-toolbar">' +
-      '<input type="text" id="skuSearch" class="input" style="width:230px" placeholder="搜索商品名称 / 规格 / SKU编码" value="' + U.esc(skuFilter) + '">' +
+      '<input type="text" id="skuSearch" class="input" style="width:240px" placeholder="搜索名称/规格/SKU编码（回车筛选）" value="' + U.esc(skuFilter) + '">' +
       '<label class="tx" style="display:flex;align-items:center;gap:5px;font-size:12px"><input type="checkbox" id="skuOnlySold"' + (skuOnlySold ? ' checked' : '') + '> 只看有销量</label>' +
       '<div class="grow"></div>' +
       '<button class="btn btn-sm" id="btnExportTpl">导出 Excel 模板</button>' +
@@ -455,14 +455,16 @@
 
     var se = $('skuSearch');
     if (se) {
-      se.oninput = U.debounce(function () {
-        var self = this;
-        var pos = self.selectionStart != null ? self.selectionStart : self.value.length;
-        skuFilter = self.value;
-        skuPage = 1;
-        keepSearchFocus = { pos: pos };
-        renderSkus(ACTIVE.skus);
-      }, 260);
+      se.onkeydown = function (e) {
+        if (e.key === 'Enter' || e.keyCode === 13) {
+          e.preventDefault();
+          var self = this;
+          skuFilter = self.value;
+          skuPage = 1;
+          keepSearchFocus = { pos: self.value.length };
+          renderSkus(ACTIVE.skus);
+        }
+      };
     }
 
     var os = $('skuOnlySold');
