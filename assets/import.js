@@ -103,7 +103,10 @@
       status: findCol(hdr, ['订单状态']),
       after: findCol(hdr, ['售后状态']),
       ship: findCol(hdr, ['发货时间']),
-      traffic: findCol(hdr, ['流量来源'])
+      traffic: findCol(hdr, ['流量来源']),
+      trafficFormat: findCol(hdr, ['流量体裁']),
+      talentName: findCol(hdr, ['达人昵称']),
+      platDisc: findCol(hdr, ['平台实际承担优惠金额'])
     };
     if (c.pid < 0 || c.submit < 0) return { err: '缺少 商品ID 或 订单提交时间 列' };
 
@@ -132,7 +135,10 @@
         status: g('status'),
         after: g('after') || '-',
         shipAt: g('ship'),
-        traffic: g('traffic')
+        traffic: g('traffic'),
+        trafficFormat: g('trafficFormat'),
+        talentName: g('talentName'),
+        platDisc: U.num(g('platDisc'))
       };
       if (o.qty === 0 && o.pay === 0) continue;
       out.push(o);
