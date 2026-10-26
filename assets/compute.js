@@ -57,6 +57,7 @@
       cost: 0, freight: 0, ins: 0,
       ad: 0, adHitDay: 0,
       platformFee: 0, talentFee: 0, tax: 0,
+      prRate: 0, postRefund: 0,
       gross: 0, net: 0,
       skus: {}, missingCost: 0,
       skuList: []
@@ -70,6 +71,7 @@
       validGmv: 0, validQty: 0, unionGmv: 0,
       cost: 0, freight: 0, ins: 0, ad: 0,
       platformFee: 0, talentFee: 0, tax: 0,
+      postRefund: 0,
       net: 0, missing: false
     };
   }
@@ -188,6 +190,7 @@
       totals.cost += L2.cost; totals.freight += L2.freight; totals.ins += L2.ins;
       totals.ad += L2.ad; totals.platformFee += L2.platformFee;
       totals.talentFee += L2.talentFee; totals.tax += L2.tax;
+      totals.postRefund += L2.postRefund;
       totals.gross += L2.gross; totals.net += L2.net;
       totals.missingCost += L2.missingCost;
     }
@@ -240,7 +243,8 @@
       K.platformFee = K.validGmv * pr;
       K.talentFee = unionAmt * tr;
       K.tax = K.validGmv * taxRate;
-      K.net = K.validGmv - K.cost - K.freight - K.ins - K.platformFee - K.talentFee - K.ad - K.tax;
+      K.postRefund = K.validGmv * (STORE.linkPostRefundRate(lk.pid) / 100);
+      K.net = K.validGmv - K.cost - K.freight - K.ins - K.platformFee - K.talentFee - K.ad - K.tax - K.postRefund;
       lk.skuList.push(K);
     }
     lk.skuList.sort(function (a, b) { return b.validGmv - a.validGmv; });
@@ -263,8 +267,10 @@
     lk.platformFee = prSum;
     lk.talentFee = trSum;
     lk.tax = lk.validGmv * taxRate;
+    lk.prRate = STORE.linkPostRefundRate(lk.pid);
+    lk.postRefund = lk.validGmv * (lk.prRate / 100);
     lk.gross = lk.validGmv - lk.cost - lk.freight - lk.ins - lk.platformFee - lk.talentFee - lk.ad;
-    lk.net = lk.gross - lk.tax;
+    lk.net = lk.gross - lk.tax - lk.postRefund;
   }
 
   function finalizeTotals(t, taxRate) {
@@ -273,7 +279,8 @@
     t.grossRate = U.ratio(t.gross, t.validGmv);
     t.roi = t.ad > 0 ? t.validGmv / t.ad : 0;
     t.roiRaw = t.ad > 0 ? t.gmv / t.ad : 0;
-    var varCost = t.cost + t.freight + t.ins + t.platformFee + t.talentFee + t.tax;
+    t.postRefundRate = U.ratio(t.postRefund, t.validGmv);
+    var varCost = t.cost + t.freight + t.ins + t.platformFee + t.talentFee + t.tax + t.postRefund;
     var margin = t.validGmv - varCost;
     t.breakeven = margin > 0 ? t.validGmv / margin : Infinity;
     t.marginRate = U.ratio(margin, t.validGmv);
@@ -284,7 +291,7 @@
   }
 
   function linkBreakeven(lk) {
-    var varCost = lk.cost + lk.freight + lk.ins + lk.platformFee + lk.talentFee + lk.tax;
+    var varCost = lk.cost + lk.freight + lk.ins + lk.platformFee + lk.talentFee + lk.tax + lk.postRefund;
     var margin = lk.validGmv - varCost;
     return margin > 0 ? lk.validGmv / margin : Infinity;
   }
