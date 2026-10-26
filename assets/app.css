@@ -165,6 +165,25 @@ select.input { cursor: pointer; }
 .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 980px) { .cols2 { grid-template-columns: 1fr; } }
 
+.cols3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-top: 14px; }
+@media (max-width: 1100px) { .cols3 { grid-template-columns: 1fr; } }
+
+/* ---------- 维度分析看板 ---------- */
+.brk { display: flex; flex-direction: column; gap: 9px; padding: 12px 14px; }
+.brk-item { display: grid; grid-template-columns: 96px 1fr auto; align-items: center; gap: 10px; }
+.brk-name { font-size: 12px; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brk-bar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+.brk-bar > i { display: block; height: 100%; background: var(--up); }
+.brk-bar.neg > i { background: var(--down); }
+.brk-val { font-size: 12px; white-space: nowrap; }
+.brk-val .muted { font-size: 11px; }
+
+/* ---------- 每日盈亏图 ---------- */
+.daily-chart { padding: 10px 14px 6px; }
+.daily-svg { width: 100%; height: 132px; display: block; }
+.daily-svg rect { transition: opacity .15s; }
+.daily-svg rect:hover { opacity: .8; }
+
 /* ---------- rank list ---------- */
 .rank { display: flex; flex-direction: column; }
 .rank-item {
