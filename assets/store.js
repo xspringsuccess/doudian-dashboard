@@ -63,7 +63,8 @@
     excludeCancelled: true,
     talentUnionOnly: true,
     includePendingRefund: false,
-    adFallback: false
+    adFallback: false,
+    postRefundRate: 0
   };
 
   var S = {
@@ -84,6 +85,7 @@
     adDates: {},           // date -> 1
     orderDates: {},        // date -> 1
     params: {},            // pid|skuKey -> {cost,freight,ins,pr,tr}
+    linkParams: {},        // pid -> {postRefund: 率} null 表示用全局
     files: [],             // 已导入文件登记
     fileHashes: {},        // 文件指纹，防重复上传
 
@@ -122,6 +124,26 @@
     saveParams();
   }
 
+  /* ---------- 链接级参数：预估发货后退款率 ---------- */
+  function getLinkParam(pid) {
+    var lp = S.linkParams[pid];
+    if (!lp) lp = S.linkParams[pid] = { postRefund: null };
+    return lp;
+  }
+
+  function setLinkParam(pid, field, val) {
+    var lp = getLinkParam(pid);
+    lp[field] = (val === null || val === '' || val === undefined) ? null : U.num(val);
+    saveParams();
+  }
+
+  /* 单链接优先，没单独设置就用全局 */
+  function linkPostRefundRate(pid) {
+    var lp = S.linkParams[pid];
+    if (lp && lp.postRefund !== null && lp.postRefund !== undefined) return U.num(lp.postRefund);
+    return U.num(S.settings.postRefundRate);
+  }
+
   /* 把设置里的默认值同步到 SKU 参数表。
      只覆盖用户没有单独改过的，避免冲掉手工调过的成本。 */
   function applyDefaults() {
@@ -147,6 +169,7 @@
       idbSet('settings', S.settings);
       idbSet('files', S.files);
       idbSet('fileHashes', S.fileHashes);
+      idbSet('linkParams', S.linkParams);
     }, 400);
   }
 
@@ -164,24 +187,25 @@
     idbSet('shops', S.shops);
     idbSet('files', S.files);
     idbSet('fileHashes', S.fileHashes);
+    idbSet('linkParams', S.linkParams);
     idbSet('params', S.params);
     idbSet('settings', S.settings);
   }
 
   function clearAll() {
-    ['orders', 'skus', 'adIndex', 'adAll', 'adNames', 'pidName', 'adPids', 'adDates', 'orderDates', 'shops', 'files', 'fileHashes', 'params'].forEach(idbDel);
+    ['orders', 'skus', 'adIndex', 'adAll', 'adNames', 'pidName', 'adPids', 'adDates', 'orderDates', 'shops', 'files', 'fileHashes', 'linkParams', 'params'].forEach(idbDel);
     S.orders = []; S.skus = []; S.adIndex = {}; S.adAll = {}; S.adNames = {}; S.pidName = {}; S.adPids = {}; S.adDates = {};
-    S.orderDates = {}; S.params = {}; S.shops = []; S.files = []; S.fileHashes = {}; S.shop = '__ALL__';
+    S.orderDates = {}; S.params = {}; S.shops = []; S.files = []; S.fileHashes = {}; S.linkParams = {}; S.shop = '__ALL__';
   }
 
   async function load() {
     db = await openDB();
-    var [orders, skus, adIndex, adAll, adNames, pidName, pidShop, adPids, adDates, orderDates, shops, files, fileHashes, params, settings] =
+    var [orders, skus, adIndex, adAll, adNames, pidName, pidShop, adPids, adDates, orderDates, shops, files, fileHashes, linkParams, params, settings] =
       await Promise.all([
         idbGet('orders'), idbGet('skus'), idbGet('adIndex'), idbGet('adAll'),
         idbGet('adNames'), idbGet('pidName'), idbGet('pidShop'), idbGet('adPids'), idbGet('adDates'),
         idbGet('orderDates'), idbGet('shops'),
-        idbGet('files'), idbGet('fileHashes'), idbGet('params'), idbGet('settings')
+        idbGet('files'), idbGet('fileHashes'), idbGet('linkParams'), idbGet('params'), idbGet('settings')
       ]);
     if (orders) S.orders = orders;
     if (skus) S.skus = skus;
@@ -196,6 +220,7 @@
     if (shops) S.shops = shops;
     if (files) S.files = files;
     if (fileHashes) S.fileHashes = fileHashes;
+    if (linkParams) S.linkParams = linkParams;
     if (params) S.params = params;
     if (settings) S.settings = Object.assign({}, DEFAULT_SETTINGS, settings);
     S.ready = true;
@@ -212,6 +237,9 @@
     paramKey: paramKey,
     getParam: getParam,
     setParam: setParam,
-    applyDefaults: applyDefaults
+    applyDefaults: applyDefaults,
+    getLinkParam: getLinkParam,
+    setLinkParam: setLinkParam,
+    linkPostRefundRate: linkPostRefundRate
   };
 })(window);
