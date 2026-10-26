@@ -144,6 +144,23 @@
     return U.num(S.settings.postRefundRate);
   }
 
+  /* 改全局值时把所有链接的单独设置清掉，让它们无条件跟随新的全局值 */
+  function resetLinkPostRefund() {
+    var n = 0;
+    for (var pid in S.linkParams) {
+      if (S.linkParams[pid].postRefund !== null) { S.linkParams[pid].postRefund = null; n++; }
+    }
+    if (n) saveParams();
+    return n;
+  }
+
+  /* 现在有多少条链接是单独设置过的 */
+  function countLinkOverride() {
+    var n = 0;
+    for (var pid in S.linkParams) if (S.linkParams[pid].postRefund !== null) n++;
+    return n;
+  }
+
   /* 把设置里的默认值同步到 SKU 参数表。
      只覆盖用户没有单独改过的，避免冲掉手工调过的成本。 */
   function applyDefaults() {
@@ -240,6 +257,8 @@
     applyDefaults: applyDefaults,
     getLinkParam: getLinkParam,
     setLinkParam: setLinkParam,
-    linkPostRefundRate: linkPostRefundRate
+    linkPostRefundRate: linkPostRefundRate,
+    resetLinkPostRefund: resetLinkPostRefund,
+    countLinkOverride: countLinkOverride
   };
 })(window);
