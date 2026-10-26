@@ -72,9 +72,10 @@
     shop: '__ALL__',
     shops: [],
     range: { start: U.todayStr(), end: U.todayStr() },
+    filter: { format: '__ALL__', talent: '__ALL__', source: '__ALL__' }, // 吸顶维度筛选（流量体裁/达人/流量来源），不持久化
     settings: Object.assign({}, DEFAULT_SETTINGS),
 
-    orders: [],            // {shop, pid, skuCode, spec, pname, qty, price, pay, date, status, after, shipAt, traffic}
+    orders: [],            // {shop, pid, skuCode, spec, pname, qty, price, pay, platDisc, date, status, after, shipAt, traffic, trafficFormat, talentName}
     skus: [],              // {pid, pname, skuId, skuCode, spec, price, link}
     adIndex: {},           // pid|date -> spend
     adAll: {},             // pid -> 「全部」行消耗
