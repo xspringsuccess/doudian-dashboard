@@ -9,6 +9,7 @@
   var expanded = {};        // links tab: pid -> true
   var skuPage = 1, skuFilter = '', skuOnlySold = false;
   var keepCell = null;      // Tab3 重绘后要还原焦点的格子
+  var keepSearchFocus = null; // Tab3 搜索触发重绘后，要把焦点还原回搜索框
 
   /* ================= 基础 ================= */
   function clampRange() {
@@ -416,6 +417,17 @@
       if (el) { el.focus(); el.select(); }
       keepCell = null;
     }
+
+    /* 搜索触发重绘后，把焦点和光标还原回搜索框，避免输入被打断 */
+    if (keepSearchFocus) {
+      var sf = $('skuSearch');
+      if (sf) {
+        sf.focus();
+        var p = Math.min(keepSearchFocus.pos, sf.value.length);
+        try { sf.setSelectionRange(p, p); } catch (e) {}
+      }
+      keepSearchFocus = null;
+    }
   }
 
   function bindSkuEvents() {
@@ -444,8 +456,11 @@
     var se = $('skuSearch');
     if (se) {
       se.oninput = U.debounce(function () {
-        skuFilter = this.value;
+        var self = this;
+        var pos = self.selectionStart != null ? self.selectionStart : self.value.length;
+        skuFilter = self.value;
         skuPage = 1;
+        keepSearchFocus = { pos: pos };
         renderSkus(ACTIVE.skus);
       }, 260);
     }
