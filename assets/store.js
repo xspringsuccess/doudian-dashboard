@@ -90,8 +90,23 @@
     files: [],             // 已导入文件登记
     fileHashes: {},        // 文件指纹，防重复上传
 
-    ready: false
+    ready: false,
+    ordersStale: false,     // 存在旧格式订单（缺 trafficFormat/talentName/platDisc），需要重新导入
+    ordersStaleN: 0         // 旧格式订单行数
   };
+
+  /* 老版本导入的订单没有「流量体裁 / 达人昵称 / 平台承担优惠」三个字段，
+     出现这种情况要明确告诉用户去重导，否则筛选器只会显示「全部」。 */
+  function checkOrdersSchema() {
+    var bad = 0;
+    for (var i = 0; i < S.orders.length; i++) {
+      var o = S.orders[i];
+      if (!('trafficFormat' in o) || !('talentName' in o) || !('platDisc' in o)) bad++;
+    }
+    S.ordersStaleN = bad;
+    S.ordersStale = bad > 0;
+    return S.ordersStale;
+  }
 
   /* ---------- 参数读写 ---------- */
   function skuKeyOf(sku) {
@@ -241,6 +256,7 @@
     if (linkParams) S.linkParams = linkParams;
     if (params) S.params = params;
     if (settings) S.settings = Object.assign({}, DEFAULT_SETTINGS, settings);
+    checkOrdersSchema();
     S.ready = true;
   }
 
@@ -248,6 +264,7 @@
     S: S,
     DEFAULT_SETTINGS: DEFAULT_SETTINGS,
     load: load,
+    checkOrdersSchema: checkOrdersSchema,
     saveCore: saveCore,
     saveParams: saveParams,
     clearAll: clearAll,
