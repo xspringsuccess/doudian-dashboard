@@ -22,6 +22,28 @@
     return d >= r.start && d <= r.end;
   }
 
+  /* 单笔订单对利润的「不含投流」贡献，供维度分组与每日盈亏复用 */
+  function orderContrib(o, taxRate, set) {
+    var gmv = U.num(o.pay) + U.num(o.platDisc);
+    var r = { gmv: gmv, validGmv: 0, cost: 0, freight: 0, ins: 0, platformFee: 0, talentFee: 0, tax: 0, postRefund: 0, qty: U.num(o.qty) };
+    if (isRefunded(o)) return r;
+    var p = STORE.getParam(o.pid, o.skuKey);
+    var qty = r.qty;
+    var pr = U.num(p.pr) / 100;
+    var tr = U.num(p.tr) / 100;
+    var unionAmt = set.talentUnionOnly && o.traffic !== '精选联盟' ? 0 : gmv;
+    var postRate = STORE.linkPostRefundRate(o.pid) / 100;
+    r.validGmv = gmv;
+    r.cost = qty * U.num(p.cost);
+    r.freight = qty * U.num(p.freight);
+    r.ins = qty * U.num(p.ins);
+    r.platformFee = gmv * pr;
+    r.talentFee = unionAmt * tr;
+    r.tax = gmv * taxRate;
+    r.postRefund = gmv * postRate;
+    return r;
+  }
+
   /* 某链接在所选区间的推广消耗 */
   function adSpendFor(pid, range, adIndex, adAll) {
     var total = 0;
@@ -81,16 +103,22 @@
     var shop = S.shop;
     var set = S.settings;
     var taxRate = U.num(set.taxRate) / 100;
+    var f = S.filter || { format: '__ALL__', talent: '__ALL__', source: '__ALL__' };
 
     var linkMap = {};
     var totals = emptyLink('__TOTAL__');
     var missingDaysOrders = false;
+    var daily = {};            // date -> 每日盈亏累计（用于每日盈亏图）
 
     var orders = S.orders;
     for (var i = 0; i < orders.length; i++) {
       var o = orders[i];
       if (shop !== '__ALL__' && o.shop !== shop) continue;
       if (o.date < range.start || o.date > range.end) continue;
+      /* 维度筛选：流量体裁 / 达人昵称 / 流量来源 */
+      if (f.format !== '__ALL__' && o.trafficFormat !== f.format) continue;
+      if (f.talent !== '__ALL__' && o.talentName !== f.talent) continue;
+      if (f.source !== '__ALL__' && o.traffic !== f.source) continue;
       missingDaysOrders = true;
 
       if (!isDeal(o)) continue;
@@ -108,42 +136,55 @@
       }
 
       var qty = U.num(o.qty);
-      var pay = U.num(o.pay);
+      /* 成交 GMV = 订单应付金额 + 平台实际承担优惠金额 */
+      var gmv = U.num(o.pay) + U.num(o.platDisc);
       var refunded = isRefunded(o);
       var price = U.num(o.price);
       if (!K.price) K.price = price;
 
-      L.gmv += pay;
+      L.gmv += gmv;
       L.qty += qty;
-      K.gmv += pay;
+      K.gmv += gmv;
       K.qty += qty;
 
       if (refunded) {
-        L.refund += pay;
+        L.refund += gmv;
         L.refundQty += qty;
-        K.refund += pay;
+        K.refund += gmv;
         K.refundQty += qty;
         if (o.after === AFTER_OK) {
-          if (o.shipAt) { L.refundPost += pay; } else { L.refundPre += pay; }
+          if (o.shipAt) { L.refundPost += gmv; } else { L.refundPre += gmv; }
         } else {
-          L.refundPending += pay;
+          L.refundPending += gmv;
         }
       } else {
         var p = STORE.getParam(o.pid, sk);
         if (U.num(p.cost) === 0) { L.missingCost += qty; K.missing = true; }
-        L.validGmv += pay;
+        L.validGmv += gmv;
         L.validQty += qty;
         L.cost += qty * U.num(p.cost);
         L.freight += qty * U.num(p.freight);
         L.ins += qty * U.num(p.ins);
-        if (o.traffic === '精选联盟') L.unionGmv += pay;
+        if (o.traffic === '精选联盟') L.unionGmv += gmv;
 
-        K.validGmv += pay;
+        K.validGmv += gmv;
         K.validQty += qty;
         K.cost += qty * U.num(p.cost);
         K.freight += qty * U.num(p.freight);
         K.ins += qty * U.num(p.ins);
-        if (o.traffic === '精选联盟') K.unionGmv += pay;
+        if (o.traffic === '精选联盟') K.unionGmv += gmv;
+      }
+
+      /* 每日盈亏累计（不含广告的部分，广告在下方按天补进来） */
+      var dt = o.date;
+      var db = daily[dt] || (daily[dt] = { gmv: 0, validGmv: 0, cost: 0, freight: 0, ins: 0, platformFee: 0, talentFee: 0, tax: 0, postRefund: 0, ad: 0, net: 0 });
+      db.gmv += gmv;
+      if (!refunded) {
+        var oc = orderContrib(o, taxRate, set);
+        db.validGmv += oc.validGmv;
+        db.cost += oc.cost; db.freight += oc.freight; db.ins += oc.ins;
+        db.platformFee += oc.platformFee; db.talentFee += oc.talentFee;
+        db.tax += oc.tax; db.postRefund += oc.postRefund;
       }
     }
 
@@ -167,6 +208,12 @@
       }
       aL.ad = aa.spend;
       aL.adHitDay = aa.hitDay;
+      /* 把这笔推广按天拆进每日盈亏累计里 */
+      var days = U.eachDay(range.start, range.end);
+      for (var di = 0; di < days.length; di++) {
+        var dv = U.num(adIndex[apid + '|' + days[di]]);
+        if (dv > 0 && daily[days[di]]) daily[days[di]].ad += dv;
+      }
     }
     var pids = Object.keys(linkMap);
 
@@ -222,7 +269,53 @@
       }
     }
 
-    return { totals: totals, links: linkList, warns: warns, skuMap: skuMap };
+    /* 每日盈亏数组（按日期排序，用于顶部每日盈亏图） */
+    var dailyArr = Object.keys(daily).sort().map(function (d) {
+      var x = daily[d];
+      x.date = d;
+      x.net = x.validGmv - x.cost - x.freight - x.ins - x.platformFee - x.talentFee - x.tax - x.postRefund - x.ad;
+      return x;
+    });
+
+    /* 维度分组看板：按流量体裁 / 达人 / 流量来源 拆分有效GMV与净毛利(不含投流)
+       每个维度分组时跳过自身的筛选项，保证选了别的维度该图依然完整 */
+    var groups = {
+      format: groupByDim('trafficFormat', 'format', range, shop, f, taxRate, set),
+      talent: groupByDim('talentName', 'talent', range, shop, f, taxRate, set),
+      source: groupByDim('traffic', 'source', range, shop, f, taxRate, set)
+    };
+
+    return { totals: totals, links: linkList, warns: warns, skuMap: skuMap, daily: dailyArr, groups: groups };
+  }
+
+  /* 按某维度聚合订单（不含投流费用），用于总览的维度分析看板 */
+  function groupByDim(dim, skipOwn, range, shop, f, taxRate, set) {
+    var map = {};
+    var orders = S.orders;
+    for (var i = 0; i < orders.length; i++) {
+      var o = orders[i];
+      if (shop !== '__ALL__' && o.shop !== shop) continue;
+      if (o.date < range.start || o.date > range.end) continue;
+      if (!isDeal(o)) continue;
+      if (skipOwn !== 'format' && f.format !== '__ALL__' && o.trafficFormat !== f.format) continue;
+      if (skipOwn !== 'talent' && f.talent !== '__ALL__' && o.talentName !== f.talent) continue;
+      if (skipOwn !== 'source' && f.source !== '__ALL__' && o.traffic !== f.source) continue;
+      var key = (o[dim] || '(未标注)');
+      var g = map[key] || (map[key] = { name: key, gmv: 0, validGmv: 0, cost: 0, freight: 0, ins: 0, platformFee: 0, talentFee: 0, tax: 0, postRefund: 0, net: 0, qty: 0 });
+      g.gmv += U.num(o.pay) + U.num(o.platDisc);
+      if (!isRefunded(o)) {
+        var oc = orderContrib(o, taxRate, set);
+        g.validGmv += oc.validGmv;
+        g.cost += oc.cost; g.freight += oc.freight; g.ins += oc.ins;
+        g.platformFee += oc.platformFee; g.talentFee += oc.talentFee;
+        g.tax += oc.tax; g.postRefund += oc.postRefund;
+        g.qty += oc.qty;
+        g.net = g.validGmv - g.cost - g.freight - g.ins - g.platformFee - g.talentFee - g.tax - g.postRefund;
+      }
+    }
+    var arr = Object.keys(map).map(function (k) { return map[k]; });
+    arr.sort(function (a, b) { return b.net - a.net; });
+    return arr;
   }
 
   function finalizeLink(lk, taxRate) {
