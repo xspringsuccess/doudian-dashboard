@@ -105,9 +105,7 @@
   /* 投流 KPI 的副标题：说明口径 */
   function adKpiSub(t) {
     if (!(t.ad > 0)) return '无投流';
-    var h = 'ROI ' + t.roi.toFixed(2);
-    if (!adSplittable()) h += ' · 仅商品级，未拆自卖/达人';
-    return h;
+    return 'ROI ' + t.roi.toFixed(2);
   }
 
   function renderOverview(res) {
@@ -121,10 +119,6 @@
       kpi('退款率', U.pct(t.refundRate), '退款 ' + U.money0(t.refundQty) + ' 件') +
       kpi('商品成本', '¥' + U.money(t.cost), t.missingCost ? U.money0(t.missingCost) + ' 件未填成本' : '') +
       kpi('投流费用', '¥' + U.money(t.ad), adKpiSub(t)) +
-      (adSplittable() ? kpi('其中：小店自卖投流', '¥' + U.money(t.adSelf),
-        t.ad > 0 ? '占投流 ' + U.pct(U.ratio(t.adSelf, t.ad), 1) : '—') +
-        kpi('其中：达人投流', '¥' + U.money(t.adTalent),
-          t.ad > 0 ? '占投流 ' + U.pct(U.ratio(t.adTalent, t.ad), 1) : '—') : '') +
       kpi('平台佣金', '¥' + U.money(t.platformFee), '') +
       kpi('达人佣金', '¥' + U.money(t.talentFee), S.settings.talentUnionOnly ? '仅精选联盟订单' : '全部订单') +
       kpi('运费 + 运费险', '¥' + U.money(t.freight + t.ins), '¥' + U.money(t.freight) + ' + ¥' + U.money(t.ins)) +
@@ -154,14 +148,6 @@
     h += '<div class="panel"><div class="panel-head"><span class="panel-title">亏损链接 TOP</span><span class="panel-sub">按净利润</span></div>' +
       '<div class="rank">' + rankHtml(bottom, maxBot, true) + '</div></div>';
     h += '</div>';
-
-    /* 维度分析看板：按流量体裁 / 达人 / 流量来源 拆分有效GMV与净毛利 */
-    var gb = res.groups || {};
-    h += '<div class="cols3">' +
-      breakdownHtml('按流量体裁', gb.format, 8) +
-      breakdownHtml('按达人', gb.talent, 10) +
-      breakdownHtml('按流量来源', gb.source, 8) +
-      '</div>';
 
     $('tab-overview').innerHTML = h;
   }
@@ -204,31 +190,25 @@
       html += '<option value="' + U.esc(keys[i]) + '">' + U.esc(keys[i] + w) + '</option>';
     }
     sel.innerHTML = html;
-    var key = sel.id === 'fltFormat' ? 'format' : sel.id === 'fltTalent' ? 'talent' : 'source';
+    var key = sel.id === 'fltSource' ? 'source' : 'source';
     sel.value = (cur && map[cur]) ? cur : '__ALL__';
     if (sel.value === '__ALL__') S.filter[key] = '__ALL__';
   }
 
   function syncFilterSelects() {
-    var fm = {}, tn = {}, src = {};
-    var tw = {};                    // 达人 -> 当前区间成交GMV（用于排序）
-    var r = S.range;
+    var src = {};
     for (var i = 0; i < S.orders.length; i++) {
       var o = S.orders[i];
       if (S.shop !== '__ALL__' && o.shop !== S.shop) continue;
-      if (o.trafficFormat) fm[o.trafficFormat] = 1;
-      if (o.talentName) tn[o.talentName] = 1;
       if (o.traffic) src[o.traffic] = 1;
-      if (o.talentName && o.date >= r.start && o.date <= r.end) {
-        tw[o.talentName] = (tw[o.talentName] || 0) + U.num(o.pay) + U.num(o.platDisc);
-      }
     }
-    fillSelect($('fltFormat'), fm, S.filter.format, '全部流量体裁');
-    fillSelect($('fltTalent'), tn, S.filter.talent, '全部达人', tw);
+    /* 流量体裁 / 达人 筛选器已按需求移除，强制保持「全部」，避免旧值残留影响计算 */
+    S.filter.format = '__ALL__';
+    S.filter.talent = '__ALL__';
     fillSelect($('fltSource'), src, S.filter.source, '全部流量来源');
   }
 
-  /* 旧格式订单提示：缺「流量体裁/达人昵称」字段时筛选器无法工作，引导重导 */
+  /* 旧格式订单提示：缺新字段时成交GMV 没计入平台承担优惠，引导重导 */
   function syncStaleBar() {
     var bar = $('staleBar'), txt = $('staleText');
     if (!bar || !txt) return;
@@ -237,49 +217,11 @@
     for (var i = 0; i < S.files.length; i++) if (S.files[i].type === 'orders') n++;
     var bad = S.ordersStaleN || 0, all = S.orders.length || 1;
     var which = bad >= all
-      ? '当前已导入的订单是旧格式（缺少「流量体裁 / 达人昵称 / 平台承担优惠」三列）'
-      : '有 ' + U.money0(bad) + ' 行订单是旧格式（缺少「流量体裁 / 达人昵称 / 平台承担优惠」三列）';
-    txt.textContent = which + '，所以「流量体裁」「达人」筛选器只有「全部」、成交GMV 也没加上平台优惠。'
-      + (n ? '点右侧按钮删除这 ' + n + ' 份旧订单文件（SKU 成本与费率设置不会丢），再重新导入订单表即可筛选。' : '请重新导入订单表。');
+      ? '当前已导入的订单是旧格式（缺少「平台实际承担优惠金额」等列）'
+      : '有 ' + U.money0(bad) + ' 行订单是旧格式（缺少「平台实际承担优惠金额」等列）';
+    txt.textContent = which + '，成交GMV 没有计入平台承担优惠，利润会被低估。'
+      + (n ? '点右侧按钮删除这 ' + n + ' 份旧订单文件（SKU 成本与费率设置不会丢），再重新导入订单表即可。' : '请重新导入订单表。');
     bar.classList.remove('hidden');
-  }
-
-  /* ================= 维度分析看板 ================= */
-  function breakdownHtml(title, rows, maxRows) {
-    if (!rows || !rows.length) return '';
-    var show = rows;
-    if (maxRows && rows.length > maxRows) {
-      show = rows.slice(0, maxRows - 1);
-      var other = { name: '其他（' + (rows.length - show.length) + '项）', gmv: 0, validGmv: 0, cost: 0, freight: 0, ins: 0, platformFee: 0, talentFee: 0, tax: 0, postRefund: 0, net: 0, qty: 0 };
-      for (var x = maxRows - 1; x < rows.length; x++) {
-        var rr = rows[x];
-        other.gmv += rr.gmv; other.validGmv += rr.validGmv; other.cost += rr.cost; other.freight += rr.freight;
-        other.ins += rr.ins; other.platformFee += rr.platformFee; other.talentFee += rr.talentFee;
-        other.tax += rr.tax; other.postRefund += rr.postRefund; other.net += rr.net; other.qty += rr.qty;
-      }
-      show = show.concat([other]);
-    }
-    var max = 1;
-    for (var i = 0; i < show.length; i++) max = Math.max(max, Math.abs(show[i].net));
-    var totalValid = 0;
-    for (var j = 0; j < show.length; j++) totalValid += show[j].validGmv;
-    totalValid = totalValid || 1;
-    var h = '<div class="panel"><div class="panel-head"><span class="panel-title">' + title + '</span>' +
-      '<span class="panel-sub">净毛利不含投流</span></div><div class="brk">';
-    for (var k = 0; k < show.length; k++) {
-      var r = show[k];
-      var w = Math.round(Math.abs(r.net) / max * 100);
-      var cls = r.net >= 0 ? 'pos' : 'neg';
-      var share = (r.validGmv / totalValid * 100);
-      h += '<div class="brk-item">' +
-        '<div class="brk-name" title="' + U.esc(r.name) + '">' + U.esc(r.name) + '</div>' +
-        '<div class="brk-bar ' + (r.net >= 0 ? 'pos' : 'neg') + '"><i style="width:' + w + '%"></i></div>' +
-        '<div class="brk-val"><span class="' + cls + '">¥' + U.money(r.net) + '</span>' +
-        ' <span class="muted">有效GMV ¥' + U.money(r.validGmv) + ' · ' + share.toFixed(1) + '%</span></div>' +
-        '</div>';
-    }
-    h += '</div></div>';
-    return h;
   }
 
   /* 紧凑每日盈亏柱状图（红涨绿跌，含投流） */
@@ -341,37 +283,25 @@
     };
   }
 
-  /* 说明投流费用的数据来源，并提示还缺哪张表才能拆 自卖/达人 */
+  /* 说明投流费用的数据来源与摊分口径 */
   function adSourceNote() {
     var hasBucket = adSplittable();
-    var hasTalent = S.talentAdAll && Object.keys(S.talentAdAll).length > 0;
     var h = '<br>投流来源：';
     if (hasBucket) {
-      h += '<b>商品经营数据</b>（已按 载体 × 自卖/合作 拆分）';
+      h += '<b>商品经营数据</b>';
       if (S.adBucketRange) h += '，统计周期 ' + S.adBucketRange.start + '~' + S.adBucketRange.end +
         '；周期汇总消耗按该商品每日有效GMV占比摊到所选区间（订单未覆盖的日子按已覆盖日的日均估算）';
-      if (hasTalent) h += '；达人消耗可用<b>达人消耗表</b>按达人精确查看';
     } else {
-      h += '<b>全域/乘方推广表</b>（只有商品级，<b class="neg">拆不出自卖与达人</b>）。' +
-        '要区分小店自卖和达人消耗，请导入「经营版-商品-商品列表」（按不同载体/自卖合作分别导出）。';
+      h += '<b>全域/乘方推广表</b>（商品级）。如需全口径消耗，可导入「经营版-商品-商品列表」' +
+        '（按不同载体 / 自卖合作分别导出、逐个上传）。';
     }
     return h;
   }
 
-  /* 投流费用单元格：总额 + 自卖/达人拆分（只有导入「商品经营数据」后才拆得开） */
+  /* 投流费用单元格：只显示总金额（不再拆 自卖/达人） */
   function adCellHtml(l) {
     if (!(l.ad > 0)) return '¥0.00';
-    var h = '¥' + U.money(l.ad);
-    if (l.adMode === 'talent') {
-      return h + '<div class="ad-split"><span class="ad-t">达人 ¥' + U.money(l.adTalent) + '</span></div>';
-    }
-    if (l.adMode && l.adMode.indexOf('bucket') === 0) {
-      return h + '<div class="ad-split">' +
-        '<span class="ad-s">自卖 ¥' + U.money(l.adSelf) + '</span>' +
-        '<span class="ad-t">达人 ¥' + U.money(l.adTalent) + '</span>' +
-        '</div>';
-    }
-    return h;
+    return '¥' + U.money(l.ad);
   }
 
   function linkTableHtml(links, expandable) {
@@ -1028,8 +958,6 @@
     on('dateStart', 'onchange', function () { S.range.start = this.value; clampRange(); renderAll(); });
     on('dateEnd', 'onchange', function () { S.range.end = this.value; clampRange(); renderAll(); });
 
-    on('fltFormat', 'onchange', function () { S.filter.format = this.value; renderAll(); });
-    on('fltTalent', 'onchange', function () { S.filter.talent = this.value; renderAll(); });
     on('fltSource', 'onchange', function () { S.filter.source = this.value; renderAll(); });
 
     var chips = document.querySelectorAll('.chip');
