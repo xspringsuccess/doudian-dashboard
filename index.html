@@ -117,7 +117,7 @@
       <div class="dropzone" id="dz">
         <div class="dz-icon">↑</div>
         <div class="dz-title">点击选择文件，或把文件拖到这里</div>
-        <div class="dz-sub">支持抖店订单 CSV/XLSX、商品表 XLSX、推广数据 XLSX、SKU 参数表 XLSX。可一次选多个。</div>
+        <div class="dz-sub">支持抖店订单 CSV/XLSX、商品表 XLSX、推广数据 XLSX、商品经营数据 XLSX、达人消耗 XLSX、SKU 参数表 XLSX。可一次选多个。</div>
         <input type="file" id="fileInput" multiple accept=".csv,.xlsx,.xls" hidden>
       </div>
 
@@ -141,6 +141,8 @@
           <li><b>抖店订单</b>：需含 订单提交时间、商品ID、商家编码、商品数量、商品单价、订单应付金额、订单状态、售后状态、发货时间、流量来源、商品规格</li>
           <li><b>商品表</b>：需含 商品ID、商品名称、规格ID（SKUID）、商家SKU编码、商品规格、商品价格</li>
           <li><b>推广数据</b>：需含 商品ID、日期、整体消耗（全域推广与乘方推广格式均支持）</li>
+          <li><b>商品经营数据</b>（经营版-商品-商品列表）：需含 商品编码、载体、自卖/合作、投放消耗（店铺被投）、统计周期。<b>这是唯一能把投流拆成「小店自卖 vs 达人」的表</b>，不同载体/自卖合作要分别导出、逐个上传</li>
+          <li><b>达人消耗</b>：需含 抖音号名称、日期、整体消耗（用于按达人精确核算投流）</li>
         </ul>
       </div>
     </div>
