@@ -82,6 +82,10 @@
     var joined = hdr.join('|');
     if (joined.indexOf('主订单编号') >= 0 || joined.indexOf('订单提交时间') >= 0) return 'orders';
     if (joined.indexOf('商品成本') >= 0) return 'params';
+    /* 商品经营数据（经营版-商品-商品列表）：唯一带「载体 + 自卖/合作」消耗拆分的数据源 */
+    if (joined.indexOf('投放消耗（店铺被投）') >= 0 && joined.indexOf('自卖/合作') >= 0) return 'bizad';
+    /* 达人投放消耗：抖音号名称 + 整体消耗 + 日期。必须排在通用 ad 之前 */
+    if (joined.indexOf('抖音号名称') >= 0 && joined.indexOf('整体消耗') >= 0) return 'talentad';
     if (joined.indexOf('整体消耗') >= 0 && joined.indexOf('日期') >= 0) return 'ad';
     if (joined.indexOf('规格ID') >= 0 || joined.indexOf('商家SKU编码') >= 0) return 'products';
     return 'unknown';
@@ -210,6 +214,87 @@
     return { rows: out };
   }
 
+  /* 「2026/09/27-2026/10/26」→ {start:'2026-09-27', end:'2026-10-26'} */
+  function parsePeriod(s) {
+    var t = U.clean(s);
+    if (!t) return null;
+    var parts = t.split(/\s*[-~至]\s*/).filter(function (x) { return x; });
+    if (parts.length < 2) {
+      var one = U.toDate(t);
+      return one ? { start: one, end: one } : null;
+    }
+    var a = U.toDate(parts[0]), b = U.toDate(parts[1]);
+    if (!a || !b) return null;
+    return a <= b ? { start: a, end: b } : { start: b, end: a };
+  }
+
+  /* 商品经营数据：唯一能区分「载体（流量体裁）× 自卖/合作」的消耗来源 */
+  function parseBizAd(rows) {
+    var hdr = rows[0];
+    var c = {
+      pid: findCol(hdr, ['商品编码', '商品ID']),
+      pname: findCol(hdr, ['商品名称']),
+      carrier: findCol(hdr, ['载体']),
+      coop: findCol(hdr, ['自卖/合作']),
+      shopAd: findCol(hdr, ['投放消耗（店铺被投）']),
+      prodAd: findCol(hdr, ['投放消耗（推商品）']),
+      period: findCol(hdr, ['统计周期'])
+    };
+    if (c.pid < 0 || c.carrier < 0 || c.coop < 0) return { err: '缺少 商品编码 / 载体 / 自卖·合作 列' };
+    if (c.shopAd < 0 && c.prodAd < 0) return { err: '缺少 投放消耗 列' };
+    var out = [];
+    var range = null;
+    for (var i = 1; i < rows.length; i++) {
+      var r = rows[i];
+      var g = function (k) { return c[k] >= 0 ? (r[c[k]] || '') : ''; };
+      var pid = U.clean(g('pid'));
+      if (!pid || pid === '-') continue;
+      var carrier = U.clean(g('carrier')) || '未知载体';
+      var coop = U.clean(g('coop')) || '未知';
+      /* 两张消耗列通常只有一列有值，取有值的那列 */
+      var spend = U.num(g('shopAd'));
+      if (!spend) spend = U.num(g('prodAd'));
+      var per = c.period >= 0 ? parsePeriod(g('period')) : null;
+      if (per && !range) range = per;
+      if (per) {
+        if (per.start < range.start) range.start = per.start;
+        if (per.end > range.end) range.end = per.end;
+      }
+      if (!spend) continue;
+      out.push({ pid: pid, pname: U.clean(g('pname')), carrier: carrier, coop: coop, spend: spend });
+    }
+    if (!out.length) return { err: '没有可用的投放消耗数据行' };
+    return { rows: out, range: range };
+  }
+
+  /* 达人投放消耗：抖音号名称 + 日期 + 整体消耗 */
+  function parseTalentAd(rows) {
+    var hdr = rows[0];
+    var c = {
+      talent: findCol(hdr, ['抖音号名称', '达人昵称']),
+      date: findCol(hdr, ['日期']),
+      spend: findCol(hdr, ['整体消耗']),
+      comm: findCol(hdr, ['预估达人佣金'])
+    };
+    if (c.talent < 0 || c.date < 0 || c.spend < 0) return { err: '缺少 抖音号名称 / 日期 / 整体消耗 列' };
+    var out = [];
+    for (var i = 1; i < rows.length; i++) {
+      var r = rows[i];
+      var g = function (k) { return c[k] >= 0 ? (r[c[k]] || '') : ''; };
+      var talent = U.clean(g('talent'));
+      if (!talent || talent === '-') continue;
+      var raw = U.clean(g('date'));
+      var d = raw === '全部' ? '全部' : U.toDate(raw);
+      if (!d) continue;
+      out.push({
+        talent: talent, date: d,
+        spend: U.num(g('spend')), comm: U.num(g('comm'))
+      });
+    }
+    if (!out.length) return { err: '没有可用的达人消耗数据行' };
+    return { rows: out };
+  }
+
   function parseParams(rows) {
     var hdr = rows[0];
     var c = {
@@ -289,6 +374,49 @@
     return delta;
   }
 
+  /* 返回本次文件的增量，供单独删除时精确回滚 */
+  function mergeBizAd(list, range) {
+    var delta = {};
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i];
+      var bucket = a.carrier + '|' + a.coop;
+      if (!S.adBucket[a.pid]) S.adBucket[a.pid] = {};
+      S.adBucket[a.pid][bucket] = (S.adBucket[a.pid][bucket] || 0) + a.spend;
+      if (!delta[a.pid]) delta[a.pid] = {};
+      delta[a.pid][bucket] = (delta[a.pid][bucket] || 0) + a.spend;
+      if (a.pname && !S.pidName[a.pid]) S.pidName[a.pid] = a.pname;
+    }
+    /* 所有商品经营数据共用一个覆盖周期（取并集） */
+    if (range) {
+      if (!S.adBucketRange) S.adBucketRange = { start: range.start, end: range.end };
+      else {
+        if (range.start < S.adBucketRange.start) S.adBucketRange.start = range.start;
+        if (range.end > S.adBucketRange.end) S.adBucketRange.end = range.end;
+      }
+    }
+    return delta;
+  }
+
+  function mergeTalentAd(list) {
+    var delta = {};      // talent|date（'ALL' 前缀表示「全部」行）-> spend 增量
+    var commDelta = {};  // talent -> 预估佣金增量
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i];
+      if (a.date === '全部') {
+        S.talentAdAll[a.talent] = (S.talentAdAll[a.talent] || 0) + a.spend;
+        S.talentCommAll[a.talent] = (S.talentCommAll[a.talent] || 0) + a.comm;
+        delta['ALL|' + a.talent] = (delta['ALL|' + a.talent] || 0) + a.spend;
+        commDelta[a.talent] = (commDelta[a.talent] || 0) + a.comm;
+        continue;
+      }
+      var k = a.talent + '|' + a.date;
+      S.talentAd[k] = (S.talentAd[k] || 0) + a.spend;
+      S.talentAdDates[a.date] = 1;
+      delta[k] = (delta[k] || 0) + a.spend;
+    }
+    return { delta: delta, commDelta: commDelta };
+  }
+
   function mergeParams(list) {
     var n = 0;
     for (var i = 0; i < list.length; i++) {
@@ -312,10 +440,10 @@
     var newAdDates = {};
     var newShops = [];
 
-    /* 1) 推广表（归属最低优先级） */
+    /* 1) 推广表 / 商品经营数据（归属最低优先级） */
     for (var a = 0; a < S.files.length; a++) {
       var fa = S.files[a];
-      if (fa.type !== 'ad' || !fa.shop) continue;
+      if ((fa.type !== 'ad' && fa.type !== 'bizad') || !fa.shop) continue;
       var pidsA = fa.pids || [];
       for (var pa = 0; pa < pidsA.length; pa++) {
         if (!newPidShop[pidsA[pa]]) newPidShop[pidsA[pa]] = fa.shop;
@@ -406,6 +534,46 @@
         var still = false;
         for (var kk in S.adIndex) { if (kk.split('|')[0] === pid) { still = true; break; } }
         if (!still && !S.adAll[pid]) delete S.adPids[pid];
+      }
+    }
+
+    /* 商品经营数据：按桶精确回滚 */
+    if (target.type === 'bizad' && target.adBucketDelta) {
+      for (var bp in target.adBucketDelta) {
+        var buckets = target.adBucketDelta[bp];
+        for (var bk in buckets) {
+          var cur = S.adBucket[bp] && S.adBucket[bp][bk];
+          if (!cur) continue;
+          var left = cur - buckets[bk];
+          if (left <= 0.000001) delete S.adBucket[bp][bk];
+          else S.adBucket[bp][bk] = left;
+          removed.ad++;
+        }
+        if (S.adBucket[bp] && !Object.keys(S.adBucket[bp]).length) delete S.adBucket[bp];
+      }
+      /* 周期是并集，删完若没有剩下任何桶就清空周期 */
+      if (!Object.keys(S.adBucket).length) S.adBucketRange = null;
+    }
+
+    /* 达人消耗：按 talent|date 精确回滚 */
+    if (target.type === 'talentad' && target.talentAdDelta) {
+      for (var tk in target.talentAdDelta) {
+        var tv = target.talentAdDelta[tk];
+        removed.ad++;
+        if (tk.slice(0, 4) === 'ALL|') {
+          var tal = tk.slice(4);
+          S.talentAdAll[tal] = (S.talentAdAll[tal] || 0) - tv;
+          if (S.talentAdAll[tal] <= 0.000001) delete S.talentAdAll[tal];
+        } else {
+          S.talentAd[tk] = (S.talentAd[tk] || 0) - tv;
+          if (S.talentAd[tk] <= 0.000001) delete S.talentAd[tk];
+        }
+      }
+      if (target.talentCommDelta) {
+        for (var tc in target.talentCommDelta) {
+          S.talentCommAll[tc] = (S.talentCommAll[tc] || 0) - target.talentCommDelta[tc];
+          if (S.talentCommAll[tc] <= 0.000001) delete S.talentCommAll[tc];
+        }
       }
     }
 
@@ -526,6 +694,37 @@
         rec.shop = ashop;
         rec.n = r3.rows.length;
         msgs.push(name + '：推广 ' + r3.rows.length + ' 行' + (ashop ? '（归属「' + ashop + '」）' : ''));
+      } else if (it.type === 'bizad') {
+        var r5 = parseBizAd(it.rows);
+        if (r5.err) { msgs.push(name + '：' + r5.err); continue; }
+        var bd = mergeBizAd(r5.rows, r5.range);
+        rec.adBucketDelta = bd;
+        rec.pids = Object.keys(bd);
+        rec.n = r5.rows.length;
+        rec.period = r5.range || null;
+        var bsum = 0, bk = {};
+        for (var bi = 0; bi < r5.rows.length; bi++) {
+          bsum += r5.rows[bi].spend;
+          var bkk = r5.rows[bi].carrier + '/' + r5.rows[bi].coop;
+          bk[bkk] = (bk[bkk] || 0) + r5.rows[bi].spend;
+        }
+        var bkList = [];
+        for (var bkey in bk) bkList.push(bkey + ' ¥' + U.money(bk[bkey]));
+        msgs.push(name + '：经营数据 ' + r5.rows.length + ' 行，消耗 ¥' + U.money(bsum) +
+          '（' + bkList.join('、') + '）' + (r5.range ? '，周期 ' + r5.range.start + '~' + r5.range.end : ''));
+      } else if (it.type === 'talentad') {
+        var r6 = parseTalentAd(it.rows);
+        if (r6.err) { msgs.push(name + '：' + r6.err); continue; }
+        var td = mergeTalentAd(r6.rows);
+        rec.talentAdDelta = td.delta;
+        rec.talentCommDelta = td.commDelta;
+        rec.n = r6.rows.length;
+        var tsum = 0, tset = {};
+        for (var ti = 0; ti < r6.rows.length; ti++) {
+          if (r6.rows[ti].date === '全部') { tsum += r6.rows[ti].spend; tset[r6.rows[ti].talent] = 1; }
+        }
+        msgs.push(name + '：达人消耗 ' + r6.rows.length + ' 行，' +
+          Object.keys(tset).length + ' 个达人，合计 ¥' + U.money(tsum));
       } else if (it.type === 'params') {
         var r4 = parseParams(it.rows);
         if (r4.err) { msgs.push(name + '：' + r4.err); continue; }
