@@ -171,41 +171,12 @@
   }
 
   /* ================= 吸顶维度筛选 ================= */
-  /* weight: 可选，{值: 权重}，按权重从大到小排序（同权重按名称） */
-  function fillSelect(sel, map, cur, allLabel, weight) {
-    if (!sel) return;
-    var keys = Object.keys(map);
-    if (weight) {
-      keys.sort(function (a, b) {
-        var d = (weight[b] || 0) - (weight[a] || 0);
-        if (Math.abs(d) > 0.000001) return d;
-        return a < b ? -1 : a > b ? 1 : 0;
-      });
-    } else {
-      keys.sort();
-    }
-    var html = '<option value="__ALL__">' + allLabel + '</option>';
-    for (var i = 0; i < keys.length; i++) {
-      var w = weight ? ' · ¥' + U.money0(weight[keys[i]] || 0) : '';
-      html += '<option value="' + U.esc(keys[i]) + '">' + U.esc(keys[i] + w) + '</option>';
-    }
-    sel.innerHTML = html;
-    var key = sel.id === 'fltSource' ? 'source' : 'source';
-    sel.value = (cur && map[cur]) ? cur : '__ALL__';
-    if (sel.value === '__ALL__') S.filter[key] = '__ALL__';
-  }
-
+  /* 三个维度筛选器（流量体裁 / 达人 / 流量来源）已全部移除。
+     这里强制把筛选值保持为「全部」，防止浏览器里残留的旧值继续过滤数据。 */
   function syncFilterSelects() {
-    var src = {};
-    for (var i = 0; i < S.orders.length; i++) {
-      var o = S.orders[i];
-      if (S.shop !== '__ALL__' && o.shop !== S.shop) continue;
-      if (o.traffic) src[o.traffic] = 1;
-    }
-    /* 流量体裁 / 达人 筛选器已按需求移除，强制保持「全部」，避免旧值残留影响计算 */
     S.filter.format = '__ALL__';
     S.filter.talent = '__ALL__';
-    fillSelect($('fltSource'), src, S.filter.source, '全部流量来源');
+    S.filter.source = '__ALL__';
   }
 
   /* 旧格式订单提示：缺新字段时成交GMV 没计入平台承担优惠，引导重导 */
@@ -958,7 +929,6 @@
     on('dateStart', 'onchange', function () { S.range.start = this.value; clampRange(); renderAll(); });
     on('dateEnd', 'onchange', function () { S.range.end = this.value; clampRange(); renderAll(); });
 
-    on('fltSource', 'onchange', function () { S.filter.source = this.value; renderAll(); });
 
     var chips = document.querySelectorAll('.chip');
     for (var c = 0; c < chips.length; c++) {
