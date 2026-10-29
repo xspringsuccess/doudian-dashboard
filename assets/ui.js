@@ -460,13 +460,20 @@
       '<button class="btn btn-sm btn-primary" id="bkApply">应用到筛选结果</button>' +
       '<button class="btn btn-sm" id="bkApplyAll">应用到全部 SKU</button>' +
       '<span class="tx" style="font-size:12px;color:var(--text-3)">当前筛选 ' + rows.length + ' 个 SKU</span>' +
+      '<span class="tbl-scroll-tip">· 表格可左右滚动，「商品名称 / 规格」已固定在左侧</span>' +
       '</div>';
 
-    h += '<div class="tbl-wrap" style="max-height:60vh"><table class="tbl"><thead><tr>' +
+    h += '<div class="tbl-wrap" style="max-height:60vh"><table class="tbl sku-tbl"><thead><tr>' +
       '<th class="th-l">商品名称</th><th class="th-l">规格</th><th class="th-l">SKU编码</th>' +
-      '<th>售价</th><th>销量</th>' +
-      '<th>商品成本</th><th>运费</th><th>运费险</th><th>平台扣点%</th><th>达人佣金%</th>' +
-      '<th>税务%</th><th>单件净利</th><th>净利润</th>' +
+      '<th title="商品售价">售价(元)</th><th title="所选时间段内的有效销量">销量</th>' +
+      '<th title="每件商品成本，单位：元">商品成本(元)</th>' +
+      '<th title="每件运费，单位：元">运费(元)</th>' +
+      '<th title="每件运费险，单位：元">运费险(元)</th>' +
+      '<th title="平台扣点费率，按有效销售额的百分比扣除">平台扣点(%)</th>' +
+      '<th title="达人佣金费率，按有效销售额的百分比扣除">达人佣金(%)</th>' +
+      '<th title="全局税率，在上方统一设置">税率(%)</th>' +
+      '<th title="每件商品的净利润 = 售价 - 各项成本 - 投流分摊 - 税">单件净利(元)</th>' +
+      '<th title="该 SKU 在所选时间段内的净利润合计">净利润(元)</th>' +
       '</tr></thead><tbody>';
 
     for (var i = 0; i < page.length; i++) {
@@ -476,7 +483,7 @@
       h += '<tr>' +
         '<td class="l"><span class="pname" title="' + U.esc(s.pname) + '">' + U.esc(s.pname) + '</span></td>' +
         '<td class="l"><span class="sname" title="' + U.esc(s.spec) + '">' + U.esc(s.spec) + '</span></td>' +
-        '<td class="l muted">' + U.esc(s.skuCode || '—') + '</td>' +
+        '<td class="l muted"><span class="sku-code" title="' + U.esc(s.skuCode || '—') + '">' + U.esc(s.skuCode || '—') + '</span></td>' +
         '<td>¥' + U.money(s.price) + '</td>' +
         '<td>' + U.money0(s._qty) + '</td>' +
         '<td><input class="cell-input" data-f="cost" data-pid="' + U.esc(s.pid) + '" data-k="' + U.esc(s._key) + '" value="' + U.num(p.cost).toFixed(2) + '"></td>' +
@@ -1029,7 +1036,7 @@
     });
   }
 
-  global.UI = { boot: boot, renderAll: renderAll, quick: quick };
+  global.UI = { boot: boot, renderAll: renderAll, quick: quick, renderSkus: renderSkus };
 })(window);
 
 window.addEventListener('DOMContentLoaded', function () { UI.boot(); });
