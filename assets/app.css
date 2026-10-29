@@ -217,7 +217,9 @@ select.input { cursor: pointer; }
 .empty { padding: 22px; text-align: center; color: var(--text-3); font-size: 13px; }
 
 /* ---------- table ---------- */
-.tbl-wrap { overflow-x: hidden; overflow-y: auto; max-height: 68vh; }
+/* ⚠️ overflow-x 必须是 auto：宽表（链接表 16 列 / SKU 表 13 列）在窄屏下会超出容器，
+   用 hidden 会把右边几列直接裁掉且连滚动条都没有，用户完全看不到那些字段。 */
+.tbl-wrap { overflow-x: auto; overflow-y: auto; max-height: 68vh; }
 .tbl-wrap.auto-x { overflow-x: auto; }
 table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 table.tbl thead th {
@@ -260,6 +262,42 @@ table.tbl tbody tr.sub-row td { color: var(--text-2); }
 }
 .pname { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
 .sname { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
+
+/* ---------- SKU 成本宽表：横向滚动 + 冻结左侧「商品名称/规格」 ---------- */
+table.sku-tbl {
+  /* sticky 单元格在 border-collapse:collapse 下边框会丢，必须用 separate */
+  border-collapse: separate; border-spacing: 0;
+  min-width: 1180px;
+}
+table.sku-tbl .cell-input { width: 68px; }
+table.sku-tbl .pname { max-width: 206px; }
+table.sku-tbl .sname { max-width: 140px; }
+table.sku-tbl .sku-code {
+  max-width: 128px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; display: inline-block; vertical-align: middle;
+}
+/* 冻结列：宽度必须写死，且与 left 偏移值严格对应，错位就会出现缝隙/叠字 */
+table.sku-tbl thead th:nth-child(1),
+table.sku-tbl tbody td:nth-child(1) { position: sticky; left: 0; width: 226px; min-width: 226px; }
+table.sku-tbl thead th:nth-child(2),
+table.sku-tbl tbody td:nth-child(2) { position: sticky; left: 226px; width: 150px; min-width: 150px; }
+table.sku-tbl thead th:nth-child(1),
+table.sku-tbl thead th:nth-child(2) {
+  z-index: 6; background: var(--surface-2);
+  box-shadow: 6px 0 8px -7px rgba(20, 24, 30, .22);
+}
+table.sku-tbl tbody td:nth-child(1),
+table.sku-tbl tbody td:nth-child(2) {
+  background: var(--surface);
+  box-shadow: 6px 0 8px -7px rgba(20, 24, 30, .18);
+}
+table.sku-tbl tbody tr:hover td:nth-child(1),
+table.sku-tbl tbody tr:hover td:nth-child(2) { background: var(--surface-2); }
+/* 冻结列不能继承 tbody 的 border-bottom 缺失问题，单独补一条 */
+table.sku-tbl tbody td:nth-child(1),
+table.sku-tbl tbody td:nth-child(2) { border-bottom: 1px solid var(--border); }
+/* 滚动提示：只在真的溢出时才有意义，用低对比小字 */
+.tbl-scroll-tip { font-size: 12px; color: var(--text-3); }
 
 /* ---------- modal ---------- */
 .modal {
