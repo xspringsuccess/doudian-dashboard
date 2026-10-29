@@ -77,9 +77,21 @@
 
     orders: [],            // {shop, pid, skuCode, spec, pname, qty, price, pay, platDisc, date, status, after, shipAt, traffic, trafficFormat, talentName}
     skus: [],              // {pid, pname, skuId, skuCode, spec, price, link}
-    adIndex: {},           // pid|date -> spend
+    adIndex: {},           // pid|date -> spend（旧：全域/乘方推广，按天）
     adAll: {},             // pid -> 「全部」行消耗
     adNames: {},           // pid -> 推广表里的商品名
+
+    /* 商品经营数据（经营版-商品-商品列表）：把消耗拆成「载体 × 自卖/合作」两维，
+       这是唯一能区分「达人消耗」和「小店自卖消耗」的数据源。
+       只有整段统计周期汇总，没有按天。 */
+    adBucket: {},          // pid -> { '载体|自卖合作' : spend }
+    adBucketRange: null,   // {start, end} 所有商品经营数据覆盖的统计周期
+
+    /* 达人投放消耗（按达人 × 日期），用于「合作」桶再往下拆到达人 */
+    talentAd: {},          // talent|date -> spend
+    talentAdAll: {},       // talent -> 区间总消耗（「全部」行）
+    talentCommAll: {},     // talent -> 预估达人佣金（「全部」行）
+    talentAdDates: {},     // date -> 1
     pidName: {},           // pid -> 商品名
     pidShop: {},           // pid -> 所属店铺（决定单店视图里出现哪些链接）
     adPids: {},            // pid -> 1
@@ -212,6 +224,12 @@
     idbSet('adIndex', S.adIndex);
     idbSet('adAll', S.adAll);
     idbSet('adNames', S.adNames);
+    idbSet('adBucket', S.adBucket);
+    idbSet('adBucketRange', S.adBucketRange);
+    idbSet('talentAd', S.talentAd);
+    idbSet('talentAdAll', S.talentAdAll);
+    idbSet('talentCommAll', S.talentCommAll);
+    idbSet('talentAdDates', S.talentAdDates);
     idbSet('pidName', S.pidName);
     idbSet('pidShop', S.pidShop);
     idbSet('adPids', S.adPids);
@@ -226,17 +244,25 @@
   }
 
   function clearAll() {
-    ['orders', 'skus', 'adIndex', 'adAll', 'adNames', 'pidName', 'adPids', 'adDates', 'orderDates', 'shops', 'files', 'fileHashes', 'linkParams', 'params'].forEach(idbDel);
+    ['orders', 'skus', 'adIndex', 'adAll', 'adNames', 'adBucket', 'adBucketRange',
+      'talentAd', 'talentAdAll', 'talentCommAll', 'talentAdDates',
+      'pidName', 'adPids', 'adDates', 'orderDates', 'shops', 'files', 'fileHashes', 'linkParams', 'params'].forEach(idbDel);
     S.orders = []; S.skus = []; S.adIndex = {}; S.adAll = {}; S.adNames = {}; S.pidName = {}; S.adPids = {}; S.adDates = {};
+    S.adBucket = {}; S.adBucketRange = null;
+    S.talentAd = {}; S.talentAdAll = {}; S.talentCommAll = {}; S.talentAdDates = {};
     S.orderDates = {}; S.params = {}; S.shops = []; S.files = []; S.fileHashes = {}; S.linkParams = {}; S.shop = '__ALL__';
   }
 
   async function load() {
     db = await openDB();
-    var [orders, skus, adIndex, adAll, adNames, pidName, pidShop, adPids, adDates, orderDates, shops, files, fileHashes, linkParams, params, settings] =
+    var [orders, skus, adIndex, adAll, adNames, adBucket, adBucketRange,
+      talentAd, talentAdAll, talentCommAll, talentAdDates,
+      pidName, pidShop, adPids, adDates, orderDates, shops, files, fileHashes, linkParams, params, settings] =
       await Promise.all([
         idbGet('orders'), idbGet('skus'), idbGet('adIndex'), idbGet('adAll'),
-        idbGet('adNames'), idbGet('pidName'), idbGet('pidShop'), idbGet('adPids'), idbGet('adDates'),
+        idbGet('adNames'), idbGet('adBucket'), idbGet('adBucketRange'),
+        idbGet('talentAd'), idbGet('talentAdAll'), idbGet('talentCommAll'), idbGet('talentAdDates'),
+        idbGet('pidName'), idbGet('pidShop'), idbGet('adPids'), idbGet('adDates'),
         idbGet('orderDates'), idbGet('shops'),
         idbGet('files'), idbGet('fileHashes'), idbGet('linkParams'), idbGet('params'), idbGet('settings')
       ]);
@@ -245,6 +271,12 @@
     if (adIndex) S.adIndex = adIndex;
     if (adAll) S.adAll = adAll;
     if (adNames) S.adNames = adNames;
+    if (adBucket) S.adBucket = adBucket;
+    if (adBucketRange) S.adBucketRange = adBucketRange;
+    if (talentAd) S.talentAd = talentAd;
+    if (talentAdAll) S.talentAdAll = talentAdAll;
+    if (talentCommAll) S.talentCommAll = talentCommAll;
+    if (talentAdDates) S.talentAdDates = talentAdDates;
     if (pidName) S.pidName = pidName;
     if (pidShop) S.pidShop = pidShop;
     if (adPids) S.adPids = adPids;
