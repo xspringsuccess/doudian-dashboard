@@ -149,7 +149,6 @@ html, body {
 }
 .input:focus { outline: none; border-color: var(--accent); }
 .input-sm { padding: 4px 8px; font-size: 12px; width: 110px; }
-#fltTalent { width: 170px; }   /* 达人下拉带 GMV 备注，给足宽度 */
 select.input { cursor: pointer; }
 
 /* ---------- cards ---------- */
