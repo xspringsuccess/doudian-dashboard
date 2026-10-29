@@ -471,45 +471,7 @@
       return x;
     });
 
-    /* 维度分组看板：按流量体裁 / 达人 / 流量来源 拆分有效GMV与净毛利(不含投流)
-       每个维度分组时跳过自身的筛选项，保证选了别的维度该图依然完整 */
-    var groups = {
-      format: groupByDim('trafficFormat', 'format', range, shop, f, taxRate, set),
-      talent: groupByDim('talentName', 'talent', range, shop, f, taxRate, set),
-      source: groupByDim('traffic', 'source', range, shop, f, taxRate, set)
-    };
-
-    return { totals: totals, links: linkList, warns: warns, skuMap: skuMap, daily: dailyArr, groups: groups };
-  }
-
-  /* 按某维度聚合订单（不含投流费用），用于总览的维度分析看板 */
-  function groupByDim(dim, skipOwn, range, shop, f, taxRate, set) {
-    var map = {};
-    var orders = S.orders;
-    for (var i = 0; i < orders.length; i++) {
-      var o = orders[i];
-      if (shop !== '__ALL__' && o.shop !== shop) continue;
-      if (o.date < range.start || o.date > range.end) continue;
-      if (!isDeal(o)) continue;
-      if (skipOwn !== 'format' && f.format !== '__ALL__' && o.trafficFormat !== f.format) continue;
-      if (skipOwn !== 'talent' && f.talent !== '__ALL__' && o.talentName !== f.talent) continue;
-      if (skipOwn !== 'source' && f.source !== '__ALL__' && o.traffic !== f.source) continue;
-      var key = (o[dim] || '(未标注)');
-      var g = map[key] || (map[key] = { name: key, gmv: 0, validGmv: 0, cost: 0, freight: 0, ins: 0, platformFee: 0, talentFee: 0, tax: 0, postRefund: 0, net: 0, qty: 0 });
-      g.gmv += U.num(o.pay) + U.num(o.platDisc);
-      if (!isRefunded(o)) {
-        var oc = orderContrib(o, taxRate, set);
-        g.validGmv += oc.validGmv;
-        g.cost += oc.cost; g.freight += oc.freight; g.ins += oc.ins;
-        g.platformFee += oc.platformFee; g.talentFee += oc.talentFee;
-        g.tax += oc.tax; g.postRefund += oc.postRefund;
-        g.qty += oc.qty;
-        g.net = g.validGmv - g.cost - g.freight - g.ins - g.platformFee - g.talentFee - g.tax - g.postRefund;
-      }
-    }
-    var arr = Object.keys(map).map(function (k) { return map[k]; });
-    arr.sort(function (a, b) { return b.net - a.net; });
-    return arr;
+    return { totals: totals, links: linkList, warns: warns, skuMap: skuMap, daily: dailyArr };
   }
 
   function finalizeLink(lk, taxRate) {
