@@ -264,6 +264,10 @@ table.tbl tbody tr.sub-row td { color: var(--text-2); }
 .pos { color: var(--up); }
 .neg { color: var(--down); }
 .muted { color: var(--text-3); }
+/* 投流费用里的 自卖 / 达人 拆分小字 */
+.ad-split { display: flex; gap: 6px; font-size: 11px; line-height: 1.5; margin-top: 1px; white-space: nowrap; }
+.ad-split .ad-s { color: var(--text-3); }
+.ad-split .ad-t { color: var(--accent); font-weight: 600; }
 .exp {
   display: inline-flex; width: 18px; height: 18px; border-radius: 5px;
   border: 1px solid var(--border-2); background: var(--surface);
