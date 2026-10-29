@@ -97,6 +97,19 @@
       '</div>';
   }
 
+  /* 是否已导入「商品经营数据」（决定投流能不能拆 自卖/达人） */
+  function adSplittable() {
+    return !!(S.adBucket && Object.keys(S.adBucket).length > 0);
+  }
+
+  /* 投流 KPI 的副标题：说明口径 */
+  function adKpiSub(t) {
+    if (!(t.ad > 0)) return '无投流';
+    var h = 'ROI ' + t.roi.toFixed(2);
+    if (!adSplittable()) h += ' · 仅商品级，未拆自卖/达人';
+    return h;
+  }
+
   function renderOverview(res) {
     var t = res.totals;
     var netCls = t.net >= 0 ? 'pos' : 'neg';
@@ -107,7 +120,11 @@
       kpi('退款金额', '¥' + U.money(t.refund), '发货前 ¥' + U.money(t.refundPre) + ' / 发货后 ¥' + U.money(t.refundPost)) +
       kpi('退款率', U.pct(t.refundRate), '退款 ' + U.money0(t.refundQty) + ' 件') +
       kpi('商品成本', '¥' + U.money(t.cost), t.missingCost ? U.money0(t.missingCost) + ' 件未填成本' : '') +
-      kpi('投流费用', '¥' + U.money(t.ad), 'ROI ' + (t.ad > 0 ? t.roi.toFixed(2) : '—')) +
+      kpi('投流费用', '¥' + U.money(t.ad), adKpiSub(t)) +
+      (adSplittable() ? kpi('其中：小店自卖投流', '¥' + U.money(t.adSelf),
+        t.ad > 0 ? '占投流 ' + U.pct(U.ratio(t.adSelf, t.ad), 1) : '—') +
+        kpi('其中：达人投流', '¥' + U.money(t.adTalent),
+          t.ad > 0 ? '占投流 ' + U.pct(U.ratio(t.adTalent, t.ad), 1) : '—') : '') +
       kpi('平台佣金', '¥' + U.money(t.platformFee), '') +
       kpi('达人佣金', '¥' + U.money(t.talentFee), S.settings.talentUnionOnly ? '仅精选联盟订单' : '全部订单') +
       kpi('运费 + 运费险', '¥' + U.money(t.freight + t.ins), '¥' + U.money(t.freight) + ' + ¥' + U.money(t.ins)) +
@@ -307,7 +324,8 @@
       '<div class="panel-foot">点击任意一行即可展开／收起该链接的 SKU 明细。' +
       '「预估发货后退款率」可单独改，留空则跟随顶部全局值；' +
       '<b>改顶部全局值时，所有链接（含单独改过的）都会跟着变</b>。' +
-      'SKU 行投流 = 链接投流 × 该 SKU <b>有效GMV占比</b>（加粗那个）。</div></div>';
+      'SKU 行投流 = 链接投流 × 该 SKU <b>有效GMV占比</b>（加粗那个）。' +
+      adSourceNote() + '</div></div>';
     $('tab-links').innerHTML = h;
     bindExpand();
 
@@ -321,6 +339,39 @@
       expanded = {};
       renderLinks(ACTIVE.links);
     };
+  }
+
+  /* 说明投流费用的数据来源，并提示还缺哪张表才能拆 自卖/达人 */
+  function adSourceNote() {
+    var hasBucket = adSplittable();
+    var hasTalent = S.talentAdAll && Object.keys(S.talentAdAll).length > 0;
+    var h = '<br>投流来源：';
+    if (hasBucket) {
+      h += '<b>商品经营数据</b>（已按 载体 × 自卖/合作 拆分）';
+      if (S.adBucketRange) h += '，统计周期 ' + S.adBucketRange.start + '~' + S.adBucketRange.end +
+        '；周期汇总消耗按该商品每日有效GMV占比摊到所选区间（订单未覆盖的日子按已覆盖日的日均估算）';
+      if (hasTalent) h += '；达人消耗可用<b>达人消耗表</b>按达人精确查看';
+    } else {
+      h += '<b>全域/乘方推广表</b>（只有商品级，<b class="neg">拆不出自卖与达人</b>）。' +
+        '要区分小店自卖和达人消耗，请导入「经营版-商品-商品列表」（按不同载体/自卖合作分别导出）。';
+    }
+    return h;
+  }
+
+  /* 投流费用单元格：总额 + 自卖/达人拆分（只有导入「商品经营数据」后才拆得开） */
+  function adCellHtml(l) {
+    if (!(l.ad > 0)) return '¥0.00';
+    var h = '¥' + U.money(l.ad);
+    if (l.adMode === 'talent') {
+      return h + '<div class="ad-split"><span class="ad-t">达人 ¥' + U.money(l.adTalent) + '</span></div>';
+    }
+    if (l.adMode && l.adMode.indexOf('bucket') === 0) {
+      return h + '<div class="ad-split">' +
+        '<span class="ad-s">自卖 ¥' + U.money(l.adSelf) + '</span>' +
+        '<span class="ad-t">达人 ¥' + U.money(l.adTalent) + '</span>' +
+        '</div>';
+    }
+    return h;
   }
 
   function linkTableHtml(links, expandable) {
@@ -351,7 +402,7 @@
         '<td>' + U.money0(l.validQty) + '</td>' +
         '<td>¥' + U.money(l.validGmv) + '</td>' +
         '<td class="' + (l.refundRate > 0.25 ? 'neg' : '') + '">' + U.pct(l.refundRate, 1) + '</td>' +
-        '<td>¥' + U.money(l.ad) + '</td>' +
+        '<td>' + adCellHtml(l) + '</td>' +
         '<td>¥' + U.money(l.cost) + '</td>' +
         '<td>¥' + U.money(l.freight) + '</td>' +
         '<td>¥' + U.money(l.ins) + '</td>' +
@@ -787,8 +838,8 @@
     if (!S.files.length) {
       h = '<div class="empty">还没有导入任何文件</div>';
     } else {
-      var tagMap = { orders: '订单', products: '商品', ad: '推广', params: '参数' };
-      var unitMap = { orders: '行订单', products: '个SKU', ad: '行推广', params: '条参数' };
+      var tagMap = { orders: '订单', products: '商品', ad: '推广', bizad: '经营', talentad: '达人消耗', params: '参数' };
+      var unitMap = { orders: '行订单', products: '个SKU', ad: '行推广', bizad: '行消耗', talentad: '行达人消耗', params: '条参数' };
       for (var i = 0; i < S.files.length; i++) {
         var f = S.files[i];
         h += '<div class="imp-item">' +
@@ -808,7 +859,7 @@
       dels[d].onclick = function () {
         var id = this.getAttribute('data-delfile');
         var nm = this.getAttribute('data-dfname');
-        if (!confirm('确定删除「' + nm + '」？\n它带来的订单 / 商品 / 推广数据会一并移除，其他文件不受影响。')) return;
+        if (!confirm('确定删除「' + nm + '」？\n它带来的订单 / 商品 / 推广 / 消耗数据会一并移除，其他文件不受影响。')) return;
         var r = IMP.removeFile(id);
         STORE.saveCore();
         renderAll();
@@ -833,7 +884,7 @@
         : IMP.baseName(items[0].file.name);
       if (!items.length) return;
       pending = items;
-      var typeTag = { orders: '订单', products: '商品', ad: '推广', params: '参数' };
+      var typeTag = { orders: '订单', products: '商品', ad: '推广', bizad: '经营', talentad: '达人消耗', params: '参数' };
       var h = '<div class="sa-note">多个店铺请分开上传并各自命名。同一店铺的订单、商品表、推广表填<b>同一个店铺名</b>即可。</div>';
       for (var i = 0; i < items.length; i++) {
         var nm = items[i].file.name;
