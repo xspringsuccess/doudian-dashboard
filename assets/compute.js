@@ -60,6 +60,105 @@
     return { spend: total, hitDay: hitDay };
   }
 
+  /* 「流量来源」→「自卖/合作」桶的映射 */
+  function coopOfSource(src) {
+    if (src === '精选联盟') return '合作';
+    if (src === '小店自卖') return '自卖';
+    return null;   // 空值 / 其他来源：商品经营数据里没有对应桶
+  }
+
+  /* 从「商品经营数据」取该商品在所选筛选下的消耗（按 载体 × 自卖合作 分桶）。
+     返回 null 表示这个商品没有经营数据，需要回退旧推广表。
+     forceCoop 用于达人维度：已确认是店铺自卖账号时，只取自卖桶。 */
+  function bucketSpend(pid, filter, forceCoop) {
+    var all = S.adBucket && S.adBucket[pid];
+    if (!all) return null;
+    var f = filter || {};
+    var self = 0, talent = 0, total = 0, matched = [];
+    for (var k in all) {
+      var parts = k.split('|');
+      var carrier = parts[0], coop = parts[1];
+      if (f.format && f.format !== '__ALL__' && carrier !== f.format) continue;
+      if (f.source && f.source !== '__ALL__') {
+        var want = coopOfSource(f.source);
+        if (!want || coop !== want) continue;
+      }
+      if (forceCoop && coop !== forceCoop) continue;
+      var v = U.num(all[k]);
+      matched.push({ carrier: carrier, coop: coop, spend: v });
+      total += v;
+      if (coop === '合作') talent += v; else self += v;
+    }
+    return { total: total, self: self, talent: talent, buckets: matched, hasData: true };
+  }
+
+  /* 商品经营数据只有整段统计周期汇总，没有按天。
+     按该商品在周期内的「每日有效GMV」占比摊到所选区间（ROI 不失真）。
+     注意：订单数据可能只覆盖周期的一部分（比如订单只有 8 天、周期是 30 天），
+     没被订单覆盖的日子用「已覆盖日的日均GMV」估权重，否则整段消耗会被压进那几天。
+     若该商品在覆盖日内完全没有有效成交，则退回按天数平均摊，避免白烧的钱被摊成 0。 */
+  function allocateByDay(pid, amount, range, pidDayValid) {
+    var out = { spend: 0, daily: {}, mode: 'none' };
+    if (!amount) return out;
+    var br = S.adBucketRange;
+    if (!br) { out.spend = amount; out.mode = 'range-unknown'; return out; }
+
+    var s = range.start > br.start ? range.start : br.start;
+    var e = range.end < br.end ? range.end : br.end;
+    if (s > e) return out;                     // 所选区间与统计周期没有交集
+
+    var days = U.eachDay(br.start, br.end);
+    var covered = S.orderDates || {};
+    var knownSum = 0, knownN = 0, i, d;
+    for (i = 0; i < days.length; i++) {
+      d = days[i];
+      if (covered[d]) { knownSum += U.num(pidDayValid[pid + '|' + d]); knownN++; }
+    }
+    var avg = knownN > 0 ? knownSum / knownN : 0;
+
+    var w = [], totalW = 0, inW = 0;
+    for (i = 0; i < days.length; i++) {
+      d = days[i];
+      var v = covered[d] ? U.num(pidDayValid[pid + '|' + d]) : avg;
+      w.push(v);
+      totalW += v;
+      if (d >= s && d <= e) inW += v;
+    }
+
+    if (totalW > 0 && inW > 0) {
+      out.spend = amount * inW / totalW;
+      for (i = 0; i < days.length; i++) {
+        d = days[i];
+        if (d < s || d > e) continue;
+        if (w[i] > 0) out.daily[d] = amount * w[i] / totalW;
+      }
+      out.mode = 'gmv';
+    } else {
+      var n = U.eachDay(s, e).length;
+      out.spend = amount * n / days.length;
+      out.mode = 'avg';
+    }
+    return out;
+  }
+
+  /* 某达人在所选区间的投放消耗（达人消耗表按天精确，缺失则用「全部」汇总）。
+     known = 这张表里到底有没有这个达人；没有的话（比如店铺自己的自卖账号）
+     就不能用达人表，要回退到经营数据的自卖桶。 */
+  function talentSpendInRange(talent, range) {
+    var days = U.eachDay(range.start, range.end);
+    var sum = 0, hit = 0, daily = {};
+    for (var i = 0; i < days.length; i++) {
+      var v = U.num(S.talentAd[talent + '|' + days[i]]);
+      if (v) { sum += v; hit++; daily[days[i]] = v; }
+    }
+    var known = hit > 0 || (S.talentAdAll && S.talentAdAll[talent] != null);
+    if (hit === 0 && S.talentAdAll[talent]) {
+      var all = U.num(S.talentAdAll[talent]);
+      if (all > 0) { sum = all; }
+    }
+    return { spend: sum, daily: daily, hitDay: hit, known: known };
+  }
+
   /* 区间是否被推广表覆盖 */
   function adCoverage(range, adDates) {
     var days = U.eachDay(range.start, range.end);
@@ -78,6 +177,9 @@
       validGmv: 0, validQty: 0, unionGmv: 0,
       cost: 0, freight: 0, ins: 0,
       ad: 0, adHitDay: 0,
+      /* 投流拆分：自卖 vs 达人（合作）。只有导入了「商品经营数据」才有值，
+         否则 adSelf/adTalent 都为 0，ad 走旧推广表口径 */
+      adSelf: 0, adTalent: 0, adMode: '',
       platformFee: 0, talentFee: 0, tax: 0,
       prRate: 0, postRefund: 0,
       gross: 0, net: 0,
@@ -92,6 +194,7 @@
       gmv: 0, qty: 0, refund: 0, refundQty: 0,
       validGmv: 0, validQty: 0, unionGmv: 0,
       cost: 0, freight: 0, ins: 0, ad: 0,
+      adSelf: 0, adTalent: 0,
       platformFee: 0, talentFee: 0, tax: 0,
       postRefund: 0,
       net: 0, missing: false
@@ -109,17 +212,34 @@
     var totals = emptyLink('__TOTAL__');
     var missingDaysOrders = false;
     var daily = {};            // date -> 每日盈亏累计（用于每日盈亏图）
+    /* 摊分权重：该商品「每日有效GMV」。刻意不受所选日期区间限制，
+       因为商品经营数据的消耗是整段统计周期汇总，需要在整个周期内按权重摊。 */
+    var pidDayValid = {};
+    /* 达人筛选时，用来判断被筛选的是一个「真达人（合作）」还是店铺自己的自卖账号 */
+    var talentSrc = { union: 0, self: 0 };
 
     var orders = S.orders;
     for (var i = 0; i < orders.length; i++) {
       var o = orders[i];
       if (shop !== '__ALL__' && o.shop !== shop) continue;
-      if (o.date < range.start || o.date > range.end) continue;
       /* 维度筛选：流量体裁 / 达人昵称 / 流量来源 */
       if (f.format !== '__ALL__' && o.trafficFormat !== f.format) continue;
       if (f.talent !== '__ALL__' && o.talentName !== f.talent) continue;
       if (f.source !== '__ALL__' && o.traffic !== f.source) continue;
+
+      /* 权重累计要放在区间判断之前 */
+      if (isDeal(o) && !isRefunded(o)) {
+        var wk = o.pid + '|' + o.date;
+        pidDayValid[wk] = (pidDayValid[wk] || 0) + U.num(o.pay) + U.num(o.platDisc);
+      }
+
+      if (o.date < range.start || o.date > range.end) continue;
       missingDaysOrders = true;
+
+      if (f.talent !== '__ALL__') {
+        if (o.traffic === '精选联盟') talentSrc.union++;
+        else if (o.traffic === '小店自卖') talentSrc.self++;
+      }
 
       if (!isDeal(o)) continue;
 
@@ -189,16 +309,53 @@
     }
 
     /* 推广消耗：区间内花了钱但没出单的链接也要进来，否则这笔亏损会凭空消失
-       单店视图下只进该店的商品，避免别店的链接和花费漏进来 */
+       单店视图下只进该店的商品，避免别店的链接和花费漏进来。
+       优先级：商品经营数据（可拆 自卖/达人）> 旧全域/乘方按天表 > 「全部」兜底 */
     var adIndex = S.adIndex || {};
     var adAll = S.adAll || {};
     var pidShop = S.pidShop || {};
-    var adPidList = Object.keys(S.adPids || {});
-    for (var ai = 0; ai < adPidList.length; ai++) {
+    var adPidSet = {};
+    var kk;
+    for (kk in (S.adPids || {})) adPidSet[kk] = 1;
+    for (kk in (S.adBucket || {})) adPidSet[kk] = 1;
+    var adPidList = Object.keys(adPidSet);
+    var bucketModeCount = 0;
+
+    /* 筛选了具体达人时：如果这个达人在「达人消耗表」里有数据，就用它的真实消耗
+       （商品经营数据/旧推广表都给不出单个达人的消耗）；如果表里没有（典型是店铺
+       自己的自卖账号），说明它是自卖流量，仍然走经营数据的桶口径。 */
+    var talentFilter = f.talent && f.talent !== '__ALL__' ? f.talent : '';
+    var talentInfo = talentFilter ? talentSpendInRange(talentFilter, range) : null;
+    var useTalentAd = !!(talentInfo && talentInfo.known);
+    /* 不在达人消耗表里 → 看订单的流量来源：以小店自卖为主就是店铺自己的账号 */
+    var talentIsSelf = !!(talentFilter && !useTalentAd && talentSrc.self >= talentSrc.union && talentSrc.self > 0);
+    var talentNoAd = !!(talentFilter && !useTalentAd && !talentIsSelf);
+
+    for (var ai = 0; ai < adPidList.length && !useTalentAd && !talentNoAd; ai++) {
       var apid = adPidList[ai];
       if (shop !== '__ALL__' && pidShop[apid] !== shop) continue;
-      var aa = adSpendFor(apid, range, adIndex, adAll);
-      if (aa.spend <= 0) continue;
+
+      var spend = 0, splitSelf = 0, splitTalent = 0, mode = '', dailyMap = null, hitDay = 0;
+      var bk = bucketSpend(apid, f, talentIsSelf ? '自卖' : null);
+
+      if (bk) {
+        /* 有商品经营数据 → 用它，可按 载体/自卖合作 精确拆；不再叠加旧推广表 */
+        var al = allocateByDay(apid, bk.total, range, pidDayValid);
+        if (al.spend > 0) {
+          spend = al.spend;
+          splitSelf = bk.self > 0 ? allocateByDay(apid, bk.self, range, pidDayValid).spend : 0;
+          splitTalent = bk.talent > 0 ? allocateByDay(apid, bk.talent, range, pidDayValid).spend : 0;
+          dailyMap = al.daily;
+          mode = 'bucket:' + al.mode;
+        }
+      } else {
+        /* 没有经营数据的老店铺 → 回退旧全域/乘方按天表 */
+        var aa = adSpendFor(apid, range, adIndex, adAll);
+        if (aa.spend > 0) { spend = aa.spend; mode = 'legacy'; hitDay = aa.hitDay; }
+      }
+
+      if (spend <= 0) continue;
+
       var aL = linkMap[apid];
       if (!aL) {
         aL = linkMap[apid] = emptyLink(apid);
@@ -206,13 +363,42 @@
         aL.link = 'https://haohuo.jinritemai.com/ecommerce/trade/detail/index.html?id=' + apid;
         aL.adOnly = true;
       }
-      aL.ad = aa.spend;
-      aL.adHitDay = aa.hitDay;
+      aL.ad = spend;
+      aL.adSelf = splitSelf;
+      aL.adTalent = splitTalent;
+      aL.adMode = mode;
+      aL.adHitDay = hitDay;
+
       /* 把这笔推广按天拆进每日盈亏累计里 */
-      var days = U.eachDay(range.start, range.end);
-      for (var di = 0; di < days.length; di++) {
-        var dv = U.num(adIndex[apid + '|' + days[di]]);
-        if (dv > 0 && daily[days[di]]) daily[days[di]].ad += dv;
+      if (dailyMap) {
+        for (var dk in dailyMap) {
+          if (daily[dk]) daily[dk].ad += dailyMap[dk];
+        }
+      } else {
+        var days = U.eachDay(range.start, range.end);
+        for (var di = 0; di < days.length; di++) {
+          var dv = U.num(adIndex[apid + '|' + days[di]]);
+          if (dv > 0 && daily[days[di]]) daily[days[di]].ad += dv;
+        }
+      }
+    }
+
+    /* 达人筛选：把该达人的真实投放消耗按各链接的有效GMV占比分摊到链接 */
+    if (useTalentAd) {
+      var ts = talentInfo;
+      var sumValid = 0, pk;
+      for (pk in linkMap) sumValid += linkMap[pk].validGmv;
+      if (ts.spend > 0 && sumValid > 0) {
+        for (pk in linkMap) {
+          var lk0 = linkMap[pk];
+          lk0.ad = ts.spend * lk0.validGmv / sumValid;
+          lk0.adTalent = lk0.ad;     // 达人消耗全部计入「达人」列
+          lk0.adSelf = 0;
+          lk0.adMode = 'talent';
+        }
+      }
+      for (var tdk in ts.daily) {
+        if (daily[tdk]) daily[tdk].ad += ts.daily[tdk];
       }
     }
     var pids = Object.keys(linkMap);
@@ -236,6 +422,7 @@
       totals.unionGmv += L2.unionGmv;
       totals.cost += L2.cost; totals.freight += L2.freight; totals.ins += L2.ins;
       totals.ad += L2.ad; totals.platformFee += L2.platformFee;
+      totals.adSelf += L2.adSelf; totals.adTalent += L2.adTalent;
       totals.talentFee += L2.talentFee; totals.tax += L2.tax;
       totals.postRefund += L2.postRefund;
       totals.gross += L2.gross; totals.net += L2.net;
@@ -244,9 +431,16 @@
     finalizeTotals(totals, taxRate);
 
     var warns = [];
-    var miss = adCoverage(range, S.adDates || {});
+    /* 有商品经营数据时是全周期汇总口径，不存在「缺天」的问题 */
+    var hasBucketData = !!(S.adBucket && Object.keys(S.adBucket).length);
+    var miss = hasBucketData ? [] : adCoverage(range, S.adDates || {});
     if (miss.length) {
       warns.push('推广数据缺少 ' + miss.length + ' 天（' + miss[0] + (miss.length > 1 ? ' 等' : '') + '），这些天的广告消耗按 0 计，ROI 会偏高。');
+    }
+    if (talentNoAd) {
+      warns.push('达人「' + talentFilter + '」在达人消耗表里没有记录，且订单来源不是小店自卖，其投流按 0 计（视为自然流量）。');
+    } else if (talentIsSelf) {
+      warns.push('「' + talentFilter + '」不在达人消耗表里、订单主要来自小店自卖，已按「自卖」桶计投流。');
     }
     var missCost = 0;
     for (var mc = 0; mc < linkList.length; mc++) missCost += linkList[mc].missingCost;
@@ -327,6 +521,8 @@
       var K = lk.skus[keys[i]];
       var share = lk.validGmv > 0 ? K.validGmv / lk.validGmv : 0;
       K.ad = lk.ad * share;
+      K.adSelf = lk.adSelf * share;
+      K.adTalent = lk.adTalent * share;
 
       var rate = K.validGmv > 0 ? K.validGmv / lk.validGmv : 0;
       var p = STORE.getParam(lk.pid, K.key);
