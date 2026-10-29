@@ -186,18 +186,6 @@ select.input { cursor: pointer; }
 .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 980px) { .cols2 { grid-template-columns: 1fr; } }
 
-.cols3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-top: 14px; }
-@media (max-width: 1100px) { .cols3 { grid-template-columns: 1fr; } }
-
-/* ---------- 维度分析看板 ---------- */
-.brk { display: flex; flex-direction: column; gap: 9px; padding: 12px 14px; }
-.brk-item { display: grid; grid-template-columns: 96px 1fr auto; align-items: center; gap: 10px; }
-.brk-name { font-size: 12px; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.brk-bar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
-.brk-bar > i { display: block; height: 100%; background: var(--up); }
-.brk-bar.neg > i { background: var(--down); }
-.brk-val { font-size: 12px; white-space: nowrap; }
-.brk-val .muted { font-size: 11px; }
 
 /* ---------- 每日盈亏图 ---------- */
 .daily-chart { padding: 10px 14px 6px; }
@@ -265,9 +253,6 @@ table.tbl tbody tr.sub-row td { color: var(--text-2); }
 .neg { color: var(--down); }
 .muted { color: var(--text-3); }
 /* 投流费用里的 自卖 / 达人 拆分小字 */
-.ad-split { display: flex; gap: 6px; font-size: 11px; line-height: 1.5; margin-top: 1px; white-space: nowrap; }
-.ad-split .ad-s { color: var(--text-3); }
-.ad-split .ad-t { color: var(--accent); font-weight: 600; }
 .exp {
   display: inline-flex; width: 18px; height: 18px; border-radius: 5px;
   border: 1px solid var(--border-2); background: var(--surface);
